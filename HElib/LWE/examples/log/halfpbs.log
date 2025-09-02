@@ -1,0 +1,53 @@
+Setting LWE Parameters...
+LWE scale: 5.36871e+08 scale bit: 29
+try loading keys
+nosice: 0. res: 0
+decrypt: 0 ground: 0
+nosice: 0. res: 536870912
+decrypt: 1 ground: 1
+nosice: 0. res: 1073741824
+decrypt: 2 ground: 2
+nosice: 0. res: 1610612736
+decrypt: 3 ground: 3
+LUT(0) = 0. f: 0. x / n: 0. q / p: 256. x: 0. q: 1024. p: 4
+LUT(256) = 0. f: 0. x / n: 1. q / p: 256. x: 1024. q: 1024. p: 4
+LUT(512) = 33554432. f: 1. x / n: 2. q / p: 256. x: 2048. q: 1024. p: 4
+LUT(768) = 33554432. f: 1. x / n: 3. q / p: 256. x: 3072. q: 1024. p: 4
+LWE ciphertext vector: half result
+Decrypted LWE result: 0 0 1 1 
+
+Setting LWE Parameters...
+LWE scale: 5.36871e+08 scale bit: 29
+try loading keys
+nosice: 0. res: 0
+decrypt: 0 ground: 0
+nosice: 0. res: 536870912
+decrypt: 1 ground: 1
+nosice: 0. res: 1073741824
+decrypt: 2 ground: 2
+nosice: 0. res: 1610612736
+decrypt: 3 ground: 3
+LUT(0) = 0. f: 0. x / n: 0. q / p: 256. x: 0. q: 1024. p: 4
+LUT(256) = 0. f: 0. x / n: 1. q / p: 256. x: 1024. q: 1024. p: 4
+LUT(512) = 33554432. f: 1. x / n: 2. q / p: 256. x: 2048. q: 1024. p: 4
+LUT(768) = 33554432. f: 1. x / n: 3. q / p: 256. x: 3072. q: 1024. p: 4
+LWE ciphertext vector: half result
+Decrypted LWE result: 3 0 1 1 
+
+Setting LWE Parameters...
+LWE scale: 5.36871e+08 scale bit: 29
+try loading keys
+nosice: 0. res: 0
+decrypt: 0 ground: 0
+nosice: 0. res: 536870912
+decrypt: 1 ground: 1
+nosice: 0. res: 1073741824
+decrypt: 2 ground: 2
+nosice: 0. res: 1610612736
+decrypt: 3 ground: 3
+LUT(0) = 0. f: 0. x / n: 0. q / p: 256. x: 0. q: 1024. p: 4
+LUT(256) = 0. f: 0. x / n: 1. q / p: 256. x: 1024. q: 1024. p: 4
+LUT(512) = 33554432. f: 1. x / n: 2. q / p: 256. x: 2048. q: 1024. p: 4
+LUT(768) = 33554432. f: 1. x / n: 3. q / p: 256. x: 3072. q: 1024. p: 4
+LWE ciphertext vector: half result
+Decrypted LWE result: 3 0 0 1 

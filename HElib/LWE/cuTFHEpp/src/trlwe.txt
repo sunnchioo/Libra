@@ -1,0 +1,43 @@
+#pragma once
+
+#include <stdint.h>
+
+#include "trlwe.cuh"
+
+namespace cuTFHEpp {
+    __global__ void extract_lwe_part(uint64_t *lwe_ct_a, uint64_t *lwe_ct_b,
+                                     const uint64_t *rlwe_ct_1, const uint64_t *rlwe_ct_0, const DModulus *modulus, size_t degree, size_t nmoduli,
+                                     const size_t extract_indices) {
+        for (int tid = blockIdx.x * blockDim.x + threadIdx.x;
+             tid < degree * nmoduli;
+             tid += gridDim.x * blockDim.x) {
+            size_t local_tid = tid % (degree * nmoduli);
+
+            size_t i = local_tid / degree;  // modulus index
+            size_t j = local_tid % degree;  // coefficient index
+            size_t extract_index = extract_indices;
+
+            uint64_t qi = modulus[i].value();
+
+            // a
+            const uint64_t *rlwe_ct_ptr = rlwe_ct_1 + i * degree;
+            uint64_t *lwe_ct_ptr = lwe_ct_a + i * degree;
+            // b
+            const uint64_t *rlwe_ct_ptr_0 = rlwe_ct_0 + i * degree;
+
+            // Extract and modify the a part
+            if (j > extract_index) {
+                uint64_t temp = rlwe_ct_ptr[degree + extract_index - j];
+                lwe_ct_ptr[j] = temp > 0 ? qi - temp : 0;
+            }
+            if (j <= extract_index) {
+                lwe_ct_ptr[j] = rlwe_ct_ptr[extract_index - j];
+            }
+
+            if (j == extract_index && i < nmoduli) {
+                lwe_ct_b[i] = rlwe_ct_ptr_0[extract_index];
+            }
+        }
+    }
+
+}  // namespace cuTFHEpp

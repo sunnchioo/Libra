@@ -1,0 +1,620 @@
+GPU
+Generating the bootstrapping keys on GPU...
+Completed the key generation.
+Obtain the maximum plaintext space: 4
+Evaluate x^3%4 on GPU.
+Input: 1. Expected: 1. Evaluated = 1
+BatchGPUEvalFunc_1, 1, 142.049, 142.049 ms.
+Input: 1. Expected: 1. Evaluated = 1
+BatchGPUEvalFunc_2, 1, 118.131, 118.131 ms.
+Input: 1. Expected: 1. Evaluated = 1
+BatchGPUEvalFunc_4, 1, 118.53, 118.53 ms.
+Input: 1. Expected: 1. Evaluated = 1
+BatchGPUEvalFunc_8, 1, 119.872, 119.872 ms.
+Input: 1. Expected: 1. Evaluated = 1
+BatchGPUEvalFunc_16, 1, 134.861, 134.861 ms.
+Input: 1. Expected: 1. Evaluated = 1
+BatchGPUEvalFunc_32, 1, 153.275, 153.275 ms.
+Input: 1. Expected: 1. Evaluated = 1
+BatchGPUEvalFunc_64, 1, 227.015, 227.015 ms.
+Input: 1. Expected: 1. Evaluated = 1
+BatchGPUEvalFunc_128, 1, 372.197, 372.197 ms.
+Input: 1. Expected: 1. Evaluated = 1
+BatchGPUEvalFunc_256, 1, 683.016, 683.016 ms.
+Input: 1. Expected: 1. Evaluated = 1
+BatchGPUEvalFunc_512, 1, 1358.23, 1358.23 ms.
+Input: 1. Expected: 1. Evaluated = 1
+BatchGPUEvalFunc_1024, 1, 2608.75, 2608.75 ms.
+Input: 1. Expected: 1. Evaluated = 1
+BatchGPUEvalFunc_2048, 1, 5161.76, 5161.76 ms.
+Input: 1. Expected: 1. Evaluated = 1
+BatchGPUEvalFunc_4096, 1, 10353.2, 10353.2 ms.
+Input: 1. Expected: 1. Evaluated = 1
+BatchGPUEvalFunc_8192, 1, 21969.4, 21969.4 ms.
+Input: 1. Expected: 1. Evaluated = 1
+BatchGPUEvalFunc_16384, 1, 47271.6, 47271.6 ms.
+Input: 1. Expected: 1. Evaluated = 1
+BatchGPUEvalFunc_32768, 1, 86250.4, 86250.4 ms.
+
+uint64 时间分布
+LWE RingDim: 1024
+Generating the bootstrapping keys on GPU...
+Completed the key generation.
+Obtain the maximum plaintext space: 4
+Evaluate x^3%4 on GPU.
+
+batch is: 1
+key switching 1, 1, 2.54563, 2.54563 ms.
+sample extract: 1, 1, 0.16928, 0.16928 ms.
+blind rotate: 1, 1, 73.515, 73.515 ms.
+key switching 1, 1, 2.04986, 2.04986 ms.
+sample extract: 1, 1, 0.03696, 0.03696 ms.
+blind rotate: 1, 1, 73.3287, 73.3287 ms.
+Input: 1. Expected: 1. Evaluated = 1
+BatchGPUEvalFunc_1, 1, 151.878, 151.878 ms.
+
+batch is: 2
+key switching 2, 1, 1.8319, 1.8319 ms.
+sample extract: 2, 1, 0.053056, 0.053056 ms.
+blind rotate: 2, 1, 71.0421, 71.0421 ms.
+key switching 2, 1, 1.81078, 1.81078 ms.
+sample extract: 2, 1, 0.050912, 0.050912 ms.
+blind rotate: 2, 1, 57.7411, 57.7411 ms.
+Input: 1. Expected: 1. Evaluated = 1
+BatchGPUEvalFunc_2, 1, 132.745, 132.745 ms.
+
+batch is: 4
+key switching 4, 1, 1.884, 1.884 ms.
+sample extract: 4, 1, 0.088992, 0.088992 ms.
+blind rotate: 4, 1, 57.6326, 57.6326 ms.
+key switching 4, 1, 1.86698, 1.86698 ms.
+sample extract: 4, 1, 0.084256, 0.084256 ms.
+blind rotate: 4, 1, 57.6743, 57.6743 ms.
+Input: 1. Expected: 1. Evaluated = 1
+BatchGPUEvalFunc_4, 1, 119.44, 119.44 ms.
+
+batch is: 8
+key switching 8, 1, 2.01347, 2.01347 ms.
+sample extract: 8, 1, 0.15808, 0.15808 ms.
+blind rotate: 8, 1, 57.9743, 57.9743 ms.
+key switching 8, 1, 2.00899, 2.00899 ms.
+sample extract: 8, 1, 0.14912, 0.14912 ms.
+blind rotate: 8, 1, 57.9845, 57.9845 ms.
+Input: 1. Expected: 1. Evaluated = 1
+BatchGPUEvalFunc_8, 1, 120.552, 120.552 ms.
+
+batch is: 16
+key switching 16, 1, 2.39136, 2.39136 ms.
+sample extract: 16, 1, 0.292768, 0.292768 ms.
+blind rotate: 16, 1, 64.864, 64.864 ms.
+key switching 16, 1, 2.39837, 2.39837 ms.
+sample extract: 16, 1, 0.288864, 0.288864 ms.
+blind rotate: 16, 1, 64.802, 64.802 ms.
+Input: 1. Expected: 1. Evaluated = 1
+BatchGPUEvalFunc_16, 1, 135.431, 135.431 ms.
+
+batch is: 32
+key switching 32, 1, 3.19837, 3.19837 ms.
+sample extract: 32, 1, 0.576736, 0.576736 ms.
+blind rotate: 32, 1, 72.8068, 72.8068 ms.
+key switching 32, 1, 3.22227, 3.22227 ms.
+sample extract: 32, 1, 0.568864, 0.568864 ms.
+blind rotate: 32, 1, 72.7914, 72.7914 ms.
+Input: 1. Expected: 1. Evaluated = 1
+BatchGPUEvalFunc_32, 1, 153.812, 153.812 ms.
+
+batch is: 64
+key switching 64, 1, 4.95418, 4.95418 ms.
+sample extract: 64, 1, 1.13363, 1.13363 ms.
+blind rotate: 64, 1, 106.86, 106.86 ms.
+key switching 64, 1, 5.06042, 5.06042 ms.
+sample extract: 64, 1, 1.14387, 1.14387 ms.
+blind rotate: 64, 1, 107.063, 107.063 ms.
+Input: 1. Expected: 1. Evaluated = 1
+BatchGPUEvalFunc_64, 1, 227.405, 227.405 ms.
+
+batch is: 128
+key switching 128, 1, 9.16294, 9.16294 ms.
+sample extract: 128, 1, 2.24563, 2.24563 ms.
+blind rotate: 128, 1, 173.411, 173.411 ms.
+key switching 128, 1, 9.06627, 9.06627 ms.
+sample extract: 128, 1, 2.1975, 2.1975 ms.
+blind rotate: 128, 1, 173.707, 173.707 ms.
+Input: 1. Expected: 1. Evaluated = 1
+BatchGPUEvalFunc_128, 1, 372.132, 372.132 ms.
+
+batch is: 256
+key switching 256, 1, 18.2891, 18.2891 ms.
+sample extract: 256, 1, 4.39114, 4.39114 ms.
+blind rotate: 256, 1, 316.311, 316.311 ms.
+key switching 256, 1, 18.2788, 18.2788 ms.
+sample extract: 256, 1, 4.33853, 4.33853 ms.
+blind rotate: 256, 1, 315.603, 315.603 ms.
+Input: 1. Expected: 1. Evaluated = 1
+BatchGPUEvalFunc_256, 1, 682.437, 682.437 ms.
+
+batch is: 512
+key switching 512, 1, 37.8565, 37.8565 ms.
+sample extract: 512, 1, 8.72307, 8.72307 ms.
+blind rotate: 512, 1, 628.816, 628.816 ms.
+key switching 512, 1, 37.7015, 37.7015 ms.
+sample extract: 512, 1, 8.67494, 8.67494 ms.
+blind rotate: 512, 1, 627.132, 627.132 ms.
+Input: 1. Expected: 1. Evaluated = 1
+BatchGPUEvalFunc_512, 1, 1357.95, 1357.95 ms.
+
+batch is: 1024
+key switching 1024, 1, 76.1051, 76.1051 ms.
+sample extract: 1024, 1, 17.3545, 17.3545 ms.
+blind rotate: 1024, 1, 1201.68, 1201.68 ms.
+key switching 1024, 1, 76.0316, 76.0316 ms.
+sample extract: 1024, 1, 17.3363, 17.3363 ms.
+blind rotate: 1024, 1, 1198.7, 1198.7 ms.
+Input: 1. Expected: 1. Evaluated = 1
+BatchGPUEvalFunc_1024, 1, 2604.81, 2604.81 ms.
+
+batch is: 2048
+key switching 2048, 1, 152.652, 152.652 ms.
+sample extract: 2048, 1, 35.0352, 35.0352 ms.
+blind rotate: 2048, 1, 2368.99, 2368.99 ms.
+key switching 2048, 1, 161.63, 161.63 ms.
+sample extract: 2048, 1, 34.789, 34.789 ms.
+blind rotate: 2048, 1, 2362.91, 2362.91 ms.
+Input: 1. Expected: 1. Evaluated = 1
+BatchGPUEvalFunc_2048, 1, 5156.96, 5156.96 ms.
+
+batch is: 4096
+key switching 4096, 1, 306.867, 306.867 ms.
+sample extract: 4096, 1, 76.9388, 76.9388 ms.
+blind rotate: 4096, 1, 4704.87, 4704.87 ms.
+key switching 4096, 1, 306.877, 306.877 ms.
+sample extract: 4096, 1, 69.6084, 69.6084 ms.
+blind rotate: 4096, 1, 4699.23, 4699.23 ms.
+Input: 1. Expected: 1. Evaluated = 1
+BatchGPUEvalFunc_4096, 1, 10253.5, 10253.5 ms.
+
+batch is: 8192
+key switching 8192, 1, 614.766, 614.766 ms.
+sample extract: 8192, 1, 146.295, 146.295 ms.
+blind rotate: 8192, 1, 9365.84, 9365.84 ms.
+key switching 8192, 1, 614.303, 614.303 ms.
+sample extract: 8192, 1, 144.988, 144.988 ms.
+blind rotate: 8192, 1, 9349.23, 9349.23 ms.
+Input: 1. Expected: 1. Evaluated = 1
+BatchGPUEvalFunc_8192, 1, 20421.4, 20421.4 ms.
+
+batch is: 16384
+key switching 16384, 1, 1230.57, 1230.57 ms.
+sample extract: 16384, 1, 279.102, 279.102 ms.
+blind rotate: 16384, 1, 18695.1, 18695.1 ms.
+key switching 16384, 1, 1227.88, 1227.88 ms.
+sample extract: 16384, 1, 276.672, 276.672 ms.
+blind rotate: 16384, 1, 18749, 18749 ms.
+Input: 1. Expected: 1. Evaluated = 1
+BatchGPUEvalFunc_16384, 1, 40819.5, 40819.5 ms.
+
+batch is: 32768
+key switching 32768, 1, 2456.65, 2456.65 ms.
+sample extract: 32768, 1, 600.23, 600.23 ms.
+blind rotate: 32768, 1, 38924.6, 38924.6 ms.
+key switching 32768, 1, 2455.33, 2455.33 ms.
+sample extract: 32768, 1, 552.562, 552.562 ms.
+blind rotate: 32768, 1, 40165.1, 40165.1 ms.
+Input: 1. Expected: 1. Evaluated = 1
+BatchGPUEvalFunc_32768, 1, 85909.4, 85909.4 ms.
+
+
+uint32 时间分布
+LWE RingDim: 1024
+Generating the bootstrapping keys on GPU...
+Completed the key generation.
+Obtain the maximum plaintext space: 4
+Evaluate x^3%4 on GPU.
+
+batch is: 1
+n: 1305 N: 1024 Q: 134215681 P: 0 PQ: 0 digitsG2: 10
+key switching 1, 1, 1.97619, 1.97619 ms.
+sample extract: 1, 1, 0.107552, 0.107552 ms.
+blind rotate: 1, 1, 64.084, 64.084 ms.
+n: 1305 N: 1024 Q: 134215681 P: 0 PQ: 0 digitsG2: 10
+key switching 1, 1, 1.94115, 1.94115 ms.
+sample extract: 1, 1, 0.033984, 0.033984 ms.
+blind rotate: 1, 1, 63.5237, 63.5237 ms.
+Input: 1. Expected: 1. Evaluated = 1
+BatchGPUEvalFunc_1, 1, 131.878, 131.878 ms.
+
+batch is: 2
+n: 1305 N: 1024 Q: 134215681 P: 0 PQ: 0 digitsG2: 10
+key switching 2, 1, 2.36576, 2.36576 ms.
+sample extract: 2, 1, 0.077856, 0.077856 ms.
+blind rotate: 2, 1, 62.9497, 62.9497 ms.
+n: 1305 N: 1024 Q: 134215681 P: 0 PQ: 0 digitsG2: 10
+key switching 2, 1, 1.7071, 1.7071 ms.
+sample extract: 2, 1, 0.045312, 0.045312 ms.
+blind rotate: 2, 1, 60.0828, 60.0828 ms.
+Input: 1. Expected: 1. Evaluated = 1
+BatchGPUEvalFunc_2, 1, 127.441, 127.441 ms.
+
+batch is: 4
+n: 1305 N: 1024 Q: 134215681 P: 0 PQ: 0 digitsG2: 10
+key switching 4, 1, 1.7481, 1.7481 ms.
+sample extract: 4, 1, 0.077088, 0.077088 ms.
+blind rotate: 4, 1, 50.8812, 50.8812 ms.
+n: 1305 N: 1024 Q: 134215681 P: 0 PQ: 0 digitsG2: 10
+key switching 4, 1, 1.7337, 1.7337 ms.
+sample extract: 4, 1, 0.075904, 0.075904 ms.
+blind rotate: 4, 1, 50.879, 50.879 ms.
+Input: 1. Expected: 1. Evaluated = 1
+BatchGPUEvalFunc_4, 1, 105.596, 105.596 ms.
+
+batch is: 8
+n: 1305 N: 1024 Q: 134215681 P: 0 PQ: 0 digitsG2: 10
+key switching 8, 1, 1.90675, 1.90675 ms.
+sample extract: 8, 1, 0.143488, 0.143488 ms.
+blind rotate: 8, 1, 51.2527, 51.2527 ms.
+n: 1305 N: 1024 Q: 134215681 P: 0 PQ: 0 digitsG2: 10
+key switching 8, 1, 1.87523, 1.87523 ms.
+sample extract: 8, 1, 0.14048, 0.14048 ms.
+blind rotate: 8, 1, 51.2539, 51.2539 ms.
+Input: 1. Expected: 1. Evaluated = 1
+BatchGPUEvalFunc_8, 1, 106.846, 106.846 ms.
+
+batch is: 16
+n: 1305 N: 1024 Q: 134215681 P: 0 PQ: 0 digitsG2: 10
+key switching 16, 1, 2.23277, 2.23277 ms.
+sample extract: 16, 1, 0.264224, 0.264224 ms.
+blind rotate: 16, 1, 53.1132, 53.1132 ms.
+n: 1305 N: 1024 Q: 134215681 P: 0 PQ: 0 digitsG2: 10
+key switching 16, 1, 2.24077, 2.24077 ms.
+sample extract: 16, 1, 0.266624, 0.266624 ms.
+blind rotate: 16, 1, 53.106, 53.106 ms.
+Input: 1. Expected: 1. Evaluated = 1
+BatchGPUEvalFunc_16, 1, 111.52, 111.52 ms.
+
+batch is: 32
+n: 1305 N: 1024 Q: 134215681 P: 0 PQ: 0 digitsG2: 10
+key switching 32, 1, 2.9719, 2.9719 ms.
+sample extract: 32, 1, 0.517568, 0.517568 ms.
+blind rotate: 32, 1, 56.4354, 56.4354 ms.
+n: 1305 N: 1024 Q: 134215681 P: 0 PQ: 0 digitsG2: 10
+key switching 32, 1, 2.99299, 2.99299 ms.
+sample extract: 32, 1, 0.518464, 0.518464 ms.
+blind rotate: 32, 1, 56.4442, 56.4442 ms.
+Input: 1. Expected: 1. Evaluated = 1
+BatchGPUEvalFunc_32, 1, 120.402, 120.402 ms.
+
+batch is: 64
+n: 1305 N: 1024 Q: 134215681 P: 0 PQ: 0 digitsG2: 10
+key switching 64, 1, 4.4593, 4.4593 ms.
+sample extract: 64, 1, 1.02854, 1.02854 ms.
+blind rotate: 64, 1, 69.966, 69.966 ms.
+n: 1305 N: 1024 Q: 134215681 P: 0 PQ: 0 digitsG2: 10
+key switching 64, 1, 4.42934, 4.42934 ms.
+sample extract: 64, 1, 1.02128, 1.02128 ms.
+blind rotate: 64, 1, 69.9619, 69.9619 ms.
+Input: 1. Expected: 1. Evaluated = 1
+BatchGPUEvalFunc_64, 1, 151.664, 151.664 ms.
+
+batch is: 128
+n: 1305 N: 1024 Q: 134215681 P: 0 PQ: 0 digitsG2: 10
+key switching 128, 1, 7.77133, 7.77133 ms.
+sample extract: 128, 1, 2.02355, 2.02355 ms.
+blind rotate: 128, 1, 94.0708, 94.0708 ms.
+n: 1305 N: 1024 Q: 134215681 P: 0 PQ: 0 digitsG2: 10
+key switching 128, 1, 7.86611, 7.86611 ms.
+sample extract: 128, 1, 2.044, 2.044 ms.
+blind rotate: 128, 1, 93.7317, 93.7317 ms.
+Input: 1. Expected: 1. Evaluated = 1
+BatchGPUEvalFunc_128, 1, 208.954, 208.954 ms.
+
+batch is: 256
+n: 1305 N: 1024 Q: 134215681 P: 0 PQ: 0 digitsG2: 10
+key switching 256, 1, 15.3606, 15.3606 ms.
+sample extract: 256, 1, 4.03488, 4.03488 ms.
+blind rotate: 256, 1, 161.06, 161.06 ms.
+n: 1305 N: 1024 Q: 134215681 P: 0 PQ: 0 digitsG2: 10
+key switching 256, 1, 15.3875, 15.3875 ms.
+sample extract: 256, 1, 4.0391, 4.0391 ms.
+blind rotate: 256, 1, 160.581, 160.581 ms.
+Input: 1. Expected: 1. Evaluated = 1
+BatchGPUEvalFunc_256, 1, 363.337, 363.337 ms.
+
+batch is: 512
+n: 1305 N: 1024 Q: 134215681 P: 0 PQ: 0 digitsG2: 10
+key switching 512, 1, 30.7672, 30.7672 ms.
+sample extract: 512, 1, 7.99021, 7.99021 ms.
+blind rotate: 512, 1, 296.319, 296.319 ms.
+n: 1305 N: 1024 Q: 134215681 P: 0 PQ: 0 digitsG2: 10
+key switching 512, 1, 30.7488, 30.7488 ms.
+sample extract: 512, 1, 8.00374, 8.00374 ms.
+blind rotate: 512, 1, 297.392, 297.392 ms.
+Input: 1. Expected: 1. Evaluated = 1
+BatchGPUEvalFunc_512, 1, 676.858, 676.858 ms.
+
+batch is: 1024
+n: 1305 N: 1024 Q: 134215681 P: 0 PQ: 0 digitsG2: 10
+key switching 1024, 1, 61.0105, 61.0105 ms.
+sample extract: 1024, 1, 16.7975, 16.7975 ms.
+blind rotate: 1024, 1, 599.138, 599.138 ms.
+n: 1305 N: 1024 Q: 134215681 P: 0 PQ: 0 digitsG2: 10
+key switching 1024, 1, 60.9426, 60.9426 ms.
+sample extract: 1024, 1, 15.8658, 15.8658 ms.
+blind rotate: 1024, 1, 603.651, 603.651 ms.
+Input: 1. Expected: 1. Evaluated = 1
+BatchGPUEvalFunc_1024, 1, 1369.53, 1369.53 ms.
+
+batch is: 2048
+n: 1305 N: 1024 Q: 134215681 P: 0 PQ: 0 digitsG2: 10
+key switching 2048, 1, 122.393, 122.393 ms.
+sample extract: 2048, 1, 32.1115, 32.1115 ms.
+blind rotate: 2048, 1, 1168.43, 1168.43 ms.
+n: 1305 N: 1024 Q: 134215681 P: 0 PQ: 0 digitsG2: 10
+key switching 2048, 1, 122.113, 122.113 ms.
+sample extract: 2048, 1, 31.8616, 31.8616 ms.
+blind rotate: 2048, 1, 1165.44, 1165.44 ms.
+Input: 1. Expected: 1. Evaluated = 1
+BatchGPUEvalFunc_2048, 1, 2665.17, 2665.17 ms.
+
+batch is: 4096
+n: 1305 N: 1024 Q: 134215681 P: 0 PQ: 0 digitsG2: 10
+key switching 4096, 1, 244.884, 244.884 ms.
+sample extract: 4096, 1, 64.5945, 64.5945 ms.
+blind rotate: 4096, 1, 2285.45, 2285.45 ms.
+n: 1305 N: 1024 Q: 134215681 P: 0 PQ: 0 digitsG2: 10
+key switching 4096, 1, 244.787, 244.787 ms.
+sample extract: 4096, 1, 67.5601, 67.5601 ms.
+blind rotate: 4096, 1, 2276.7, 2276.7 ms.
+Input: 1. Expected: 1. Evaluated = 1
+BatchGPUEvalFunc_4096, 1, 5239.72, 5239.72 ms.
+
+batch is: 8192
+n: 1305 N: 1024 Q: 134215681 P: 0 PQ: 0 digitsG2: 10
+key switching 8192, 1, 490.802, 490.802 ms.
+sample extract: 8192, 1, 129.176, 129.176 ms.
+blind rotate: 8192, 1, 4531.88, 4531.88 ms.
+n: 1305 N: 1024 Q: 134215681 P: 0 PQ: 0 digitsG2: 10
+key switching 8192, 1, 488.271, 488.271 ms.
+sample extract: 8192, 1, 134.956, 134.956 ms.
+blind rotate: 8192, 1, 4517.19, 4517.19 ms.
+Input: 1. Expected: 1. Evaluated = 1
+BatchGPUEvalFunc_8192, 1, 10406.8, 10406.8 ms.
+
+batch is: 16384
+n: 1305 N: 1024 Q: 134215681 P: 0 PQ: 0 digitsG2: 10
+key switching 16384, 1, 978.001, 978.001 ms.
+sample extract: 16384, 1, 259.668, 259.668 ms.
+blind rotate: 16384, 1, 8989.43, 8989.43 ms.
+n: 1305 N: 1024 Q: 134215681 P: 0 PQ: 0 digitsG2: 10
+key switching 16384, 1, 975.74, 975.74 ms.
+sample extract: 16384, 1, 258.291, 258.291 ms.
+blind rotate: 16384, 1, 8984, 8984 ms.
+Input: 1. Expected: 1. Evaluated = 1
+BatchGPUEvalFunc_16384, 1, 20665.3, 20665.3 ms.
+
+batch is: 32768
+n: 1305 N: 1024 Q: 134215681 P: 0 PQ: 0 digitsG2: 10
+key switching 32768, 1, 1985.44, 1985.44 ms.
+sample extract: 32768, 1, 518.769, 518.769 ms.
+blind rotate: 32768, 1, 18008.6, 18008.6 ms.
+n: 1305 N: 1024 Q: 134215681 P: 0 PQ: 0 digitsG2: 10
+key switching 32768, 1, 1957.8, 1957.8 ms.
+sample extract: 32768, 1, 514.259, 514.259 ms.
+blind rotate: 32768, 1, 18220.7, 18220.7 ms.
+Input: 1. Expected: 1. Evaluated = 1
+BatchGPUEvalFunc_32768, 1, 41662, 41662 ms.
+
+TOY
+LWE RingDim: 1024
+Generating the bootstrapping keys on GPU...
+Completed the key generation.
+Obtain the maximum plaintext space: 4
+Evaluate x^3%4 on GPU.
+
+batch is: 1
+Input: 1. Expected: 1. Evaluated = 1
+BatchGPUEvalFunc_1, 1, 4.27632, 4.27632 ms.
+
+batch is: 2
+Input: 1. Expected: 1. Evaluated = 1
+BatchGPUEvalFunc_2, 1, 4.3225, 4.3225 ms.
+
+batch is: 4
+Input: 1. Expected: 1. Evaluated = 1
+BatchGPUEvalFunc_4, 1, 4.62384, 4.62384 ms.
+
+batch is: 8
+Input: 1. Expected: 1. Evaluated = 1
+BatchGPUEvalFunc_8, 1, 5.23994, 5.23994 ms.
+
+batch is: 16
+Input: 1. Expected: 1. Evaluated = 1
+BatchGPUEvalFunc_16, 1, 6.40832, 6.40832 ms.
+
+batch is: 32
+Input: 1. Expected: 1. Evaluated = 1
+BatchGPUEvalFunc_32, 1, 8.78208, 8.78208 ms.
+
+batch is: 64
+Input: 1. Expected: 1. Evaluated = 1
+BatchGPUEvalFunc_64, 1, 14.5532, 14.5532 ms.
+
+batch is: 128
+Input: 1. Expected: 1. Evaluated = 1
+BatchGPUEvalFunc_128, 1, 24.2745, 24.2745 ms.
+
+batch is: 256
+Input: 1. Expected: 1. Evaluated = 1
+BatchGPUEvalFunc_256, 1, 44.2928, 44.2928 ms.
+
+batch is: 512
+Input: 1. Expected: 1. Evaluated = 1
+BatchGPUEvalFunc_512, 1, 85.5333, 85.5333 ms.
+
+batch is: 1024
+Input: 1. Expected: 1. Evaluated = 1
+BatchGPUEvalFunc_1024, 1, 167.85, 167.85 ms.
+
+batch is: 2048
+Input: 1. Expected: 1. Evaluated = 1
+BatchGPUEvalFunc_2048, 1, 329.47, 329.47 ms.
+
+batch is: 4096
+Input: 1. Expected: 1. Evaluated = 1
+BatchGPUEvalFunc_4096, 1, 661.626, 661.626 ms.
+
+batch is: 8192
+Input: 1. Expected: 1. Evaluated = 1
+BatchGPUEvalFunc_8192, 1, 1314.32, 1314.32 ms.
+
+batch is: 16384
+Input: 1. Expected: 1. Evaluated = 1
+BatchGPUEvalFunc_16384, 1, 2650.77, 2650.77 ms.
+
+batch is: 32768
+Input: 1. Expected: 1. Evaluated = 1
+BatchGPUEvalFunc_32768, 1, 5321.21, 5321.21 ms. 0.16
+
+add
+m_Q: 134215681 logQ: 27 m_baseG: 128 static_cast<double>(m_baseG): 128 log(static_cast<double>(m_baseG): 7 m_digitsG: 4
+LWE RingDim: 1024
+Generating the bootstrapping keys on GPU...
+Completed the key generation.
+Obtain the maximum plaintext space: 4
+
+logbatch is: 0
+v_ct0 size: 1
+BatchGPUADD_1, 1, 0.049152, 0.049152 ms.
+Input: 2. Evaluated = 2
+
+logbatch is: 1
+v_ct0 size: 2
+BatchGPUADD_2, 1, 0.007168, 0.007168 ms.
+Input: 2. Evaluated = 2
+
+logbatch is: 2
+v_ct0 size: 4
+BatchGPUADD_4, 1, 0.007168, 0.007168 ms.
+Input: 2. Evaluated = 2
+
+logbatch is: 3
+v_ct0 size: 8
+BatchGPUADD_8, 1, 0.007168, 0.007168 ms.
+Input: 2. Evaluated = 2
+
+logbatch is: 4
+v_ct0 size: 16
+BatchGPUADD_16, 1, 0.008192, 0.008192 ms.
+Input: 2. Evaluated = 2
+
+logbatch is: 5
+v_ct0 size: 32
+BatchGPUADD_32, 1, 0.006144, 0.006144 ms.
+Input: 2. Evaluated = 2
+
+logbatch is: 6
+v_ct0 size: 64
+BatchGPUADD_64, 1, 0.007168, 0.007168 ms.
+Input: 2. Evaluated = 2
+
+logbatch is: 7
+v_ct0 size: 128
+BatchGPUADD_128, 1, 0.008192, 0.008192 ms.
+Input: 2. Evaluated = 2
+
+logbatch is: 8
+v_ct0 size: 256
+BatchGPUADD_256, 1, 0.011264, 0.011264 ms.
+Input: 2. Evaluated = 2
+
+logbatch is: 9
+v_ct0 size: 512
+BatchGPUADD_512, 1, 0.009216, 0.009216 ms.
+Input: 2. Evaluated = 2
+
+logbatch is: 10
+v_ct0 size: 1024
+BatchGPUADD_1024, 1, 0.011264, 0.011264 ms.
+Input: 2. Evaluated = 2
+
+logbatch is: 11
+v_ct0 size: 2048
+BatchGPUADD_2048, 1, 0.03072, 0.03072 ms.
+Input: 2. Evaluated = 2
+
+logbatch is: 12
+v_ct0 size: 4096
+BatchGPUADD_4096, 1, 0.0768, 0.0768 ms.
+Input: 2. Evaluated = 2
+
+logbatch is: 13
+v_ct0 size: 8192
+BatchGPUADD_8192, 1, 0.139264, 0.139264 ms.
+Input: 2. Evaluated = 2
+
+logbatch is: 14
+v_ct0 size: 16384
+BatchGPUADD_16384, 1, 0.15872, 0.15872 ms.
+Input: 2. Evaluated = 2
+
+logbatch is: 15
+v_ct0 size: 32768
+BatchGPUADD_32768, 1, 0.3072, 0.3072 ms.
+Input: 2. Evaluated = 2
+
+-------------------------------------------------------
+CPU
+Generating the bootstrapping keys on CPU...
+Completed the key generation.
+Evaluate x^3%4 on CPU.
+batch is: 1
+951ms
+lut end. 
+batch is: 2
+957ms
+lut end. 
+batch is: 4
+1064ms
+lut end. 
+batch is: 8
+975ms
+lut end. 
+batch is: 16
+948ms
+lut end. 
+batch is: 32
+925ms
+lut end. 
+batch is: 64
+922ms
+lut end. 
+batch is: 128
+931ms
+lut end. 
+batch is: 256
+926ms
+lut end. 
+batch is: 512
+906ms
+lut end. 
+batch is: 1024
+924ms
+lut end. 
+batch is: 2048
+923ms
+lut end.
+batch is: 4096
+926ms
+lut end.
+batch is: 8196
+928ms
+lut end.
+batch is: 16384
+923ms
+lut end.
+batch is: 32768
+921ms
+lut end.
+batch is: 65536
+916ms
+lut end.
+

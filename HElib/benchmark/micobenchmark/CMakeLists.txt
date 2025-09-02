@@ -1,0 +1,21 @@
+set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/lib)
+set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/lib)
+set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin/benchmark/mico)
+
+include_directories(${CMAKE_SOURCE_DIR}/RLWE/phantom/include)
+include_directories(${CMAKE_SOURCE_DIR}/RLWE/boot/include)
+include_directories(${CMAKE_SOURCE_DIR}/RLWE/boot/include/boostrapping)
+include_directories(${CMAKE_SOURCE_DIR}/RLWE/boot/include/boostrapping/common)
+
+include_directories(${CMAKE_SOURCE_DIR}/LWE/cuTFHEpp/include)
+
+include_directories(${CMAKE_SOURCE_DIR}/conversion/include)
+
+include_directories(/usr/local/include)
+include_directories(/usr/local/include/NTL)
+
+link_libraries(cutfhepp conver boot)
+
+add_executable(innerproduct innerproduct.cu)
+target_link_libraries(innerproduct PRIVATE ntl gmp m pthread)
+

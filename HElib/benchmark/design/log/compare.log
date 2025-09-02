@@ -1,0 +1,542 @@
+sign function
+
+Setting LWE Parameters...
+try loading keys
+LWE batch size: 1
+SignBoostrapping, 1, 33.2974, 33.2974 ms.
+LWE ciphertext vector: Sign result
+Decrypted LWE result: 0 
+LWE batch size: 2
+SignBoostrapping, 1, 23.6073, 23.6073 ms.
+LWE ciphertext vector: Sign result
+Decrypted LWE result: 0 0 
+LWE batch size: 4
+SignBoostrapping, 1, 23.1916, 23.1916 ms.
+LWE ciphertext vector: Sign result
+Decrypted LWE result: 1 1 0 0 
+LWE batch size: 8
+SignBoostrapping, 1, 22.9786, 22.9786 ms.
+LWE ciphertext vector: Sign result
+Decrypted LWE result: 0 0 1 0 0 0 1 1 
+LWE batch size: 16
+SignBoostrapping, 1, 22.8803, 22.8803 ms.
+LWE ciphertext vector: Sign result
+Decrypted LWE result: 1 0 0 1 1 1 0 1 0 0 
+LWE batch size: 32
+SignBoostrapping, 1, 22.9089, 22.9089 ms.
+LWE ciphertext vector: Sign result
+Decrypted LWE result: 0 1 0 0 1 0 0 0 1 0 
+LWE batch size: 64
+SignBoostrapping, 1, 22.8168, 22.8168 ms.
+LWE ciphertext vector: Sign result
+Decrypted LWE result: 1 0 0 1 0 0 1 1 0 1 
+LWE batch size: 128
+SignBoostrapping, 1, 45.2803, 45.2803 ms.
+LWE ciphertext vector: Sign result
+Decrypted LWE result: 1 0 0 0 0 1 1 1 1 0 
+LWE batch size: 256
+SignBoostrapping, 1, 66.9266, 66.9266 ms.
+LWE ciphertext vector: Sign result
+Decrypted LWE result: 1 0 1 0 0 0 0 0 0 1 
+LWE batch size: 512
+SignBoostrapping, 1, 110.943, 110.943 ms.
+LWE ciphertext vector: Sign result
+Decrypted LWE result: 0 0 0 1 0 1 0 1 1 0 
+LWE batch size: 1024
+SignBoostrapping, 1, 222.092, 222.092 ms.
+LWE ciphertext vector: Sign result
+Decrypted LWE result: 0 1 1 0 1 1 1 0 1 1 
+LWE batch size: 2048
+SignBoostrapping, 1, 489.243, 489.243 ms.
+LWE ciphertext vector: Sign result
+Decrypted LWE result: 1 0 1 0 1 1 1 0 1 1 
+LWE batch size: 4096
+SignBoostrapping, 1, 918.659, 918.659 ms.
+LWE ciphertext vector: Sign result
+Decrypted LWE result: 1 0 0 1 0 1 1 0 1 0 
+LWE batch size: 8192
+SignBoostrapping, 1, 1820.54, 1820.54 ms.
+LWE ciphertext vector: Sign result
+Decrypted LWE result: 0 1 0 0 1 1 1 0 0 1 
+LWE batch size: 16384
+SignBoostrapping, 1, 3621.73, 3621.73 ms.
+LWE ciphertext vector: Sign result
+Decrypted LWE result: 1 1 0 0 0 0 1 0 0 1 
+LWE batch size: 32768
+SignBoostrapping, 1, 7179.54, 7179.54 ms.
+LWE ciphertext vector: Sign result
+Decrypted LWE result: 1 1 0 0 1 0 0 0 1 0 
+
+ckks compare
+(2,2)
+Setting Parameters...
+Generating secret key with hamming weight: 192
+Setting decoding sparse slots to: 32768
+gpu_ckks_msg_vec_size: 65536
+create galois keys. 
+r: 
+-2.85542 3.06934 -0.854175 3.31633 6.40977 4.4318 -1.92944 -2.64953 2.89692 6.11524 
+sparse_slots: 32768
+ckks comp begin: 36
+ckks comp end: 19
+sparse slot: 32768
+compare result: 
+-0.498493 0.49867 -0.498404 0.499705 0.499925 0.499959 -0.499077 -0.499608 0.498342 0.499897 
+error: 0.00377983 size: 32768
+sgn, 1, 85.3791, 85.3791 ms.
+17 level
+
+(3,3)
+Setting Parameters...
+Generating secret key with hamming weight: 192
+Setting decoding sparse slots to: 32768
+gpu_ckks_msg_vec_size: 65536
+create galois keys. 
+r: 
+-6.38309 0.831201 -3.40195 3.20883 -1.63557 -2.73264 -5.25072 2.15439 -3.71705 -2.63377 
+sparse_slots: 32768
+ckks comp begin: 36
+ckks comp end: 11
+sparse slot: 32768
+compare result: 
+-0.5 0.5 -0.5 0.5 -0.5 -0.5 -0.5 0.5 -0.5 -0.5 
+error: 0.000172123 size: 32768
+sgn, 1, 107.35, 107.35 ms.
+25 level
+
+(4,4)
+Setting Parameters...
+Generating secret key with hamming weight: 192
+Setting decoding sparse slots to: 32768
+gpu_ckks_msg_vec_size: 65536
+create galois keys. 
+r: 
+6.80909 2.48157 -1.26666 7.87261 -0.0247487 4.03531 -1.10917 0.0949603 -2.2747 -1.56471 
+sparse_slots: 32768
+ckks comp begin: 36
+ckks comp end: 3
+sparse slot: 32768
+compare result: 
+0.5 0.5 -0.5 0.5 -0.5 0.5 -0.5 0.5 -0.5 -0.5 
+error: 1.16909e-05 size: 32768
+sgn, 1, 115.804, 115.804 ms.
+33 level
+
+level=21
+Setting Parameters...
+Generating secret key with hamming weight: 192
+Setting decoding sparse slots to: 32768
+gpu_ckks_msg_vec_size: 65536
+create galois keys. 
+sparse: 
+3.7135 -5.66202 0.336464 0.289859 5.17168 4.08485 -3.42417 -2.7086 4.74125 6.762 
+sparse_slots: 32768
+ckks comp begin: 22
+ckks comp end: 5
+sparse slot: 32768
+compare result: 
+0.499964 -0.498502 0.499944 0.499849 0.499944 0.499966 -0.499864 -0.499341 0.499967 0.498286 
+error: 0.00378773 size: 32768
+sgn, 1, 42.5851, 42.5851 ms.
+
+## error
+(3,3) 
+Setting Parameters...
+Generating secret key with hamming weight: 192
+Setting decoding sparse slots to: 32768
+gpu_ckks_msg_vec_size: 65536
+create galois keys. 
+len: 1
+sparse: 
+-6.20781 0 0 0 0 0 0 0 0 0 
+sparse_slots: 32768
+ckks comp begin: 30
+ckks comp end: 5
+sparse slot: 32768
+compare result: 
+-0.5 1.22006e-05 1.00193e-06 5.05854e-08 -1.24645e-08 -2.48044e-09 5.91999e-09 8.43741e-09 9.69437e-09 1.33825e-09 
+error: 1.32722e-08 size: 1
+
+sgn, 1, 81.8524, 81.8524 ms.
+len: 2
+sparse: 
+-7.9375 -1.08107 0 0 0 0 0 0 0 0 
+sparse_slots: 32768
+ckks comp begin: 30
+ckks comp end: 5
+sparse slot: 32768
+compare result: 
+-0.5 -0.5 2.16046e-07 8.30995e-08 -4.21582e-09 5.98074e-09 2.41122e-09 -2.16044e-09 1.12488e-08 1.99481e-09 
+error: 8.66234e-09 size: 2
+
+sgn, 1, 79.404, 79.404 ms.
+len: 4
+sparse: 
+-3.72014 6.59579 -4.64753 -6.31825 0 0 0 0 0 0 
+sparse_slots: 32768
+ckks comp begin: 30
+ckks comp end: 5
+sparse slot: 32768
+compare result: 
+-0.5 -0.5 -0.5 -0.5 1.14438e-08 -2.22101e-08 -7.94646e-09 2.79638e-09 -2.17871e-08 4.91453e-10 
+error: 3.65407e-09 size: 4
+
+sgn, 1, 73.087, 73.087 ms.
+len: 8
+sparse: 
+3.23525 -2.4231 -6.04825 -2.92013 -6.03032 5.21554 -0.244483 -7.39004 0 0 
+sparse_slots: 32768
+ckks comp begin: 30
+ckks comp end: 5
+sparse slot: 32768
+compare result: 
+-0.5 -0.5 -0.5 -0.5 -0.5 0.5 0.5 -0.5 1.85853e-08 -7.40151e-09 
+error: 1.89986e-09 size: 8
+
+sgn, 1, 68.5619, 68.5619 ms.
+len: 16
+sparse: 
+-0.00495676 -4.06082 -2.90666 -2.62435 -2.81389 1.6427 0.694103 -0.286036 -7.11783 0.149976 
+sparse_slots: 32768
+ckks comp begin: 30
+ckks comp end: 5
+sparse slot: 32768
+compare result: 
+-0.5 -0.5 -0.5 -0.5 -0.5 -0.5 -0.5 0.5 -0.5 0.5 
+error: 1.1331e-09 size: 16
+
+sgn, 1, 68.5435, 68.5435 ms.
+len: 32
+sparse: 
+7.13803 -7.59958 5.98298 4.51133 6.0088 4.75494 -5.25015 -5.50019 7.7739 -1.78805 
+sparse_slots: 32768
+ckks comp begin: 30
+ckks comp end: 5
+sparse slot: 32768
+compare result: 
+0.5 0.493936 0.5 0.5 0.5 0.5 -0.5 -0.5 0.5 -0.5 
+error: 0.000189515 size: 32
+
+sgn, 1, 68.5844, 68.5844 ms.
+len: 64
+sparse: 
+-3.79701 -3.85014 5.4554 4.19005 4.51768 -5.54832 -2.96541 -5.71792 -5.38073 -6.35016 
+sparse_slots: 32768
+ckks comp begin: 30
+ckks comp end: 5
+sparse slot: 32768
+compare result: 
+-0.5 -0.5 0.5 0.5 -0.5 -0.5 -0.5 -0.5 -0.5 -0.5 
+error: 2.95162e-10 size: 64
+
+sgn, 1, 68.5425, 68.5425 ms.
+len: 128
+sparse: 
+-0.912228 -1.07947 -7.71705 2.20249 7.9374 -1.50332 -7.10884 4.1565 -4.92738 -3.08287 
+sparse_slots: 32768
+ckks comp begin: 30
+ckks comp end: 5
+sparse slot: 32768
+compare result: 
+0.5 0.5 -0.5 -0.5 0.5 -0.5 -0.5 0.5 -0.5 -0.5 
+error: 0.000100755 size: 128
+
+sgn, 1, 68.6008, 68.6008 ms.
+len: 256
+sparse: 
+4.99791 1.17299 -6.76331 -5.65944 -4.66597 6.04742 -7.64715 -7.16159 -3.08421 -4.60153 
+sparse_slots: 32768
+ckks comp begin: 30
+ckks comp end: 5
+sparse slot: 32768
+compare result: 
+-0.5 0.5 -0.5 -0.5 -0.5 0.5 -0.5 0.5 -0.5 -0.5 
+error: 9.88048e-10 size: 256
+
+sgn, 1, 68.5486, 68.5486 ms.
+len: 512
+sparse: 
+3.04218 4.8972 -5.56921 -1.18002 6.60469 -4.45316 5.0184 6.05991 5.933 1.08649 
+sparse_slots: 32768
+ckks comp begin: 30
+ckks comp end: 5
+sparse slot: 32768
+compare result: 
+-0.5 -0.5 -0.5 -0.5 0.5 -0.5 0.5 -0.5 -0.5 0.5 
+error: 7.59878e-05 size: 512
+
+sgn, 1, 68.5517, 68.5517 ms.
+len: 1024
+sparse: 
+-4.24977 -7.67138 -7.78295 -0.372851 3.28773 -2.46471 4.16976 -3.41757 -2.51424 1.26518 
+sparse_slots: 32768
+ckks comp begin: 30
+ckks comp end: 5
+sparse slot: 32768
+compare result: 
+-0.5 -0.5 -0.5 -0.5 -0.5 0.5 0.5 -0.5 0.5 0.5 
+error: 0.000553405 size: 1024
+
+sgn, 1, 68.521, 68.521 ms.
+len: 2048
+sparse: 
+-4.62328 -7.87236 7.36864 0.48558 6.48094 -0.195599 -5.10168 0.290028 -2.36722 2.98742 
+sparse_slots: 32768
+ckks comp begin: 30
+ckks comp end: 5
+sparse slot: 32768
+compare result: 
+-0.5 -0.5 0.5 -0.5 0.5 -0.5 -0.5 -0.5 -0.5 0.5 
+error: 0.000544987 size: 2048
+
+sgn, 1, 68.4114, 68.4114 ms.
+len: 4096
+sparse: 
+4.66839 5.9845 -0.177457 1.57906 -5.03559 -0.859667 5.84411 -0.0984668 5.35493 -2.19671 
+sparse_slots: 32768
+ckks comp begin: 30
+ckks comp end: 5
+sparse slot: 32768
+compare result: 
+0.5 0.5 -0.5 -0.5 -0.5 -0.5 0.5 0.5 0.5 -0.5 
+error: 0.000628525 size: 4096
+
+sgn, 1, 70.9949, 70.9949 ms.
+len: 8192
+sparse: 
+-1.08726 -1.47009 5.16885 6.41841 6.93402 3.12114 4.19939 7.59765 1.63848 2.70457 
+sparse_slots: 32768
+ckks comp begin: 30
+ckks comp end: 5
+sparse slot: 32768
+compare result: 
+0.5 0.5 0.5 0.5 0.5 0.5 0.5 0.5 -0.5 -0.5 
+error: 0.000396087 size: 8192
+
+sgn, 1, 68.5681, 68.5681 ms.
+len: 16384
+sparse: 
+-7.34584 5.79398 6.30017 -5.89123 -1.23346 -2.14473 5.68105 -7.19341 -5.95365 -7.74699 
+sparse_slots: 32768
+ckks comp begin: 30
+ckks comp end: 5
+sparse slot: 32768
+compare result: 
+-0.5 0.5 0.5 -0.5 0.5 0.5 0.5 -0.5 -0.5 -0.5 
+error: 0.000678224 size: 16384
+
+sgn, 1, 68.5844, 68.5844 ms.
+len: 32768
+sparse: 
+6.77399 6.75073 1.6194 -1.22309 3.41037 0.462236 -6.50097 5.85162 0.223407 2.96363 
+sparse_slots: 32768
+ckks comp begin: 30
+ckks comp end: 5
+sparse slot: 32768
+compare result: 
+-0.5 0.5 0.5 -0.5 0.5 0.5 -0.5 0.5 0.5 -0.5 
+error: 0.000648427 size: 32768
+
+sgn, 1, 68.5824, 68.5824 ms.
+sum error: 0.00381594 avg error: 0.000238496
+
+
+(2,2)
+Setting Parameters...
+Generating secret key with hamming weight: 192
+Setting decoding sparse slots to: 32768
+gpu_ckks_msg_vec_size: 65536
+create galois keys. 
+len: 1
+sparse: 
+-2.04644 0 0 0 0 0 0 0 0 0 
+sparse_slots: 32768
+ckks comp begin: 22
+ckks comp end: 5
+sparse slot: 32768
+compare result: 
+0.499908 -2.37944e-07 2.9281e-08 -5.99066e-09 5.38297e-09 -3.80582e-11 2.49057e-11 7.00304e-11 -8.98735e-10 5.07966e-10 
+error: 9.15966e-05 size: 1
+
+sgn, 1, 45.0683, 45.0683 ms.
+len: 2
+sparse: 
+-7.57368 -7.08706 0 0 0 0 0 0 0 0 
+sparse_slots: 32768
+ckks comp begin: 22
+ckks comp end: 5
+sparse slot: 32768
+compare result: 
+-0.498772 -0.49973 2.42994e-08 3.31179e-10 2.25586e-09 8.31227e-10 -2.18733e-10 1.03334e-10 2.05898e-10 -8.36197e-11 
+error: 0.000749073 size: 2
+
+sgn, 1, 44.9249, 44.9249 ms.
+len: 4
+sparse: 
+5.73331 -2.74259 -3.69625 7.07619 0 0 0 0 0 0 
+sparse_slots: 32768
+ckks comp begin: 22
+ckks comp end: 5
+sparse slot: 32768
+compare result: 
+0.499061 -0.499969 0.499969 0.499883 -1.12648e-09 -1.63629e-09 3.40006e-10 -2.55355e-10 -7.25078e-10 -1.34586e-10 
+error: 0.000279509 size: 4
+
+sgn, 1, 38.4317, 38.4317 ms.
+len: 8
+sparse: 
+2.94711 2.71641 3.05079 3.6493 -0.957505 -7.72438 1.59401 -2.94934 0 0 
+sparse_slots: 32768
+ckks comp begin: 22
+ckks comp end: 5
+sparse slot: 32768
+compare result: 
+0.499914 -0.498296 -0.498292 0.499344 -0.499954 -0.499724 0.499959 -0.498365 4.77164e-10 -6.09023e-10 
+error: 0.000769049 size: 8
+
+sgn, 1, 38.2833, 38.2833 ms.
+len: 16
+sparse: 
+5.33538 3.66635 -4.69771 7.50052 -0.659921 -6.11099 7.7653 7.33906 4.36545 3.40392 
+sparse_slots: 32768
+ckks comp begin: 22
+ckks comp end: 5
+sparse slot: 32768
+compare result: 
+0.498337 -0.49996 0.498539 0.499698 -0.486583 -0.49997 0.499967 0.499888 0.499933 0.499962 
+error: 0.00112111 size: 16
+
+sgn, 1, 38.3355, 38.3355 ms.
+len: 32
+sparse: 
+-0.7755 6.17961 7.75705 -4.0956 4.95266 6.95485 -0.322974 -0.999561 3.25116 6.13986 
+sparse_slots: 32768
+ckks comp begin: 22
+ckks comp end: 5
+sparse slot: 32768
+compare result: 
+-0.499771 0.498561 0.499964 -0.498288 -0.49996 0.499959 -0.49995 -0.498955 -0.499582 0.499966 
+error: 0.000493635 size: 32
+
+sgn, 1, 38.3089, 38.3089 ms.
+len: 64
+sparse: 
+2.62153 -6.71645 -6.9966 -4.24323 5.21914 5.68288 3.20438 4.87157 -5.60111 1.58197 
+sparse_slots: 32768
+ckks comp begin: 22
+ckks comp end: 5
+sparse slot: 32768
+compare result: 
+-0.498589 -0.495759 -0.499359 -0.499969 0.4986 0.499967 0.499933 -0.497562 -0.49996 -0.499629 
+error: 0.0104913 size: 64
+
+sgn, 1, 38.3017, 38.3017 ms.
+len: 128
+sparse: 
+-7.32004 2.35987 -2.86973 1.4941 -1.92144 -6.50902 -5.84992 3.30836 7.45426 4.95639 
+sparse_slots: 32768
+ckks comp begin: 22
+ckks comp end: 5
+sparse slot: 32768
+compare result: 
+-0.499791 0.49991 -0.283754 -0.499017 0.499969 -0.499969 -0.499905 -0.499966 0.498941 -0.499912 
+error: 0.00242676 size: 128
+
+sgn, 1, 38.2935, 38.2935 ms.
+len: 256
+sparse: 
+5.2057 0.601516 -7.6903 3.29934 3.25828 -3.76023 -0.634255 2.4523 5.10127 4.13715 
+sparse_slots: 32768
+ckks comp begin: 22
+ckks comp end: 5
+sparse slot: 32768
+compare result: 
+0.49997 0.498356 -0.498582 -0.128063 0.49997 -0.499967 0.498424 0.499743 0.49851 0.499928 
+error: 0.00552554 size: 256
+
+sgn, 1, 38.2925, 38.2925 ms.
+len: 512
+sparse: 
+1.88219 7.96913 -7.41944 -3.82631 1.98794 6.33958 6.09581 2.576 5.27114 -6.61188 
+sparse_slots: 32768
+ckks comp begin: 22
+ckks comp end: 5
+sparse slot: 32768
+compare result: 
+0.499842 0.498745 -0.49997 -0.499964 0.49996 -0.496615 0.499889 -0.499946 -0.49973 -0.499595 
+error: 0.0110149 size: 512
+
+sgn, 1, 38.3181, 38.3181 ms.
+len: 1024
+sparse: 
+4.75236 0.848898 -7.09375 2.4463 -6.33111 -5.37995 2.13009 -5.80046 -7.78182 7.34421 
+sparse_slots: 32768
+ckks comp begin: 22
+ckks comp end: 5
+sparse slot: 32768
+compare result: 
+0.0251374 -0.499128 -0.498354 -0.499967 -0.499964 0.211802 0.499599 -0.49997 -0.498331 0.499937 
+error: 0.0101733 size: 1024
+
+sgn, 1, 38.273, 38.273 ms.
+len: 2048
+sparse: 
+-3.28849 -5.92489 -3.16135 -1.72407 6.55784 0.879931 6.45958 3.52637 -7.32292 -6.89501 
+sparse_slots: 32768
+ckks comp begin: 22
+ckks comp end: 5
+sparse slot: 32768
+compare result: 
+0.499927 -0.499802 -0.499963 -0.499911 0.498689 -0.499892 0.49997 0.499958 -0.499832 -0.498634 
+error: 0.00856549 size: 2048
+
+sgn, 1, 38.3232, 38.3232 ms.
+len: 4096
+sparse: 
+-7.22076 7.6859 -4.7098 -2.33186 -5.63481 -0.412234 -2.64712 -6.44099 3.1091 6.06233 
+sparse_slots: 32768
+ckks comp begin: 22
+ckks comp end: 5
+sparse slot: 32768
+compare result: 
+-0.499614 0.498929 0.499003 0.499938 -0.496463 0.49851 -0.315699 -0.499757 0.44479 -0.499968 
+error: 0.0101014 size: 4096
+
+sgn, 1, 38.2956, 38.2956 ms.
+len: 8192
+sparse: 
+-3.93907 -6.79793 -7.23397 -1.66645 0.164935 -0.201244 -3.07499 -2.89603 6.45615 -6.24717 
+sparse_slots: 32768
+ckks comp begin: 22
+ckks comp end: 5
+sparse slot: 32768
+compare result: 
+0.499878 -0.498312 -0.499304 -0.499775 0.499928 0.498749 0.499606 -0.499958 0.499144 -0.499969 
+error: 0.00929707 size: 8192
+
+sgn, 1, 38.272, 38.272 ms.
+len: 16384
+sparse: 
+3.68828 7.23288 -2.12371 4.00248 7.17123 7.19195 -4.02156 -3.65855 -5.14919 0.56239 
+sparse_slots: 32768
+ckks comp begin: 22
+ckks comp end: 5
+sparse slot: 32768
+compare result: 
+-0.499855 0.499968 0.498855 -0.499846 0.499965 0.499962 -0.499433 0.498702 -0.499572 0.498917 
+error: 0.00867372 size: 16384
+
+sgn, 1, 38.2986, 38.2986 ms.
+len: 32768
+sparse: 
+2.54155 0.985829 5.52012 5.38018 -1.70889 4.01004 2.25722 -3.31398 -0.957652 -2.26905 
+sparse_slots: 32768
+ckks comp begin: 22
+ckks comp end: 5
+sparse slot: 32768
+compare result: 
+0.499963 0.498571 0.499835 -0.499857 0.499961 -0.498666 0.499705 -0.499932 -0.498327 -0.349102 
+error: 0.00865545 size: 32768
+
+sgn, 1, 38.2915, 38.2915 ms.
+sum error: 0.0884289 avg error: 0.0055268

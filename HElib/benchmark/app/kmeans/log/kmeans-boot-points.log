@@ -1,0 +1,302 @@
+Setting Parameters...
+Generating secret key with hamming weight: 192
+Setting decoding sparse slots to: 32768
+gpu_ckks_msg_vec_size: 65536
+Generating Optimal Minimax Polynomials...
+Adding Bootstrapping Keys...
+create galois keys. 
+relin_keys size: 62
+Galois key size: 62
+Galois key generated from steps vector.
+Generating Linear Transformation Coefficients...
+pre compute done.
+
+5 points. 2 dim. 2 centers.
+input : 
+line 0 : 0 0 0 0 0 0 0 0 0 0 
+line 1 : 0.1 -0.1 0 0 0 0 0 0 0 0 
+line 2 : 0.2 -0.2 0 0 0 0 0 0 0 0 
+line 3 : 2.09 0 0 0 0 0 0 0 0 0 
+line 4 : 2.19 -0.1 0 0 0 0 0 0 0 0 
+
+init center : 
+line 0 : 0 0 0 0 0 0 0 0 0 0 
+line 1 : 2.19 -0.1 0 0 0 0 0 0 0 0 
+
+iter: 0
+Euclidean distance, 1, 367.727, 367.727 ms.
+CompareDistance, 1, 216.365, 216.365 ms.
+UpdateCenters, 1, 33.0168, 33.0168 ms.
+Bootstrapper, 1, 1690.09, 1690.09 ms.
+Total: 367.727 + 216.365 + 33.0168 + 1690.09 = 2307.2 ms. 
+
+4 points. 2 dim. 2 centers. 
+input : 
+line 0 : 0 0 0 0 0 0 0 0 0 0 
+line 1 : 0.1 -0.1 0 0 0 0 0 0 0 0 
+line 2 : 2.09 0 0 0 0 0 0 0 0 0 
+line 3 : 2.19 -0.1 0 0 0 0 0 0 0 0 
+
+init center : 
+line 0 : 0 0 0 0 0 0 0 0 0 0 
+line 1 : 2.19 -0.1 0 0 0 0 0 0 0 0 
+
+iter: 0
+Euclidean distance, 1, 301.385, 301.385 ms.
+CompareDistance, 1, 177.479, 177.479 ms.
+UpdateCenters, 1, 26.3905, 26.3905 ms.
+Bootstrapper, 1, 1650.96, 1650.96 ms.
+Total: 301.385 + 177.479 + 26.3905 + 1650.96 = 2156.2145 ms
+
+8 points. 2 dim. 2 centers. 
+input : 
+line 0 : 0 0 0 0 0 0 0 0 0 0 
+line 1 : 0.1 -0.1 0 0 0 0 0 0 0 0 
+line 2 : 0.2 -0.2 0 0 0 0 0 0 0 0 
+line 3 : 0.3 -0.3 0 0 0 0 0 0 0 0 
+line 4 : 2.45294 0.320436 0 0 0 0 0 0 0 0 
+line 5 : 2.51464 0.37655 0 0 0 0 0 0 0 0 
+line 6 : 3.73855 -0.172199 0 0 0 0 0 0 0 0 
+line 7 : 2.45539 0.037355 0 0 0 0 0 0 0 0 
+
+init center : 
+line 0 : 0 0 0 0 0 0 0 0 0 0 
+line 1 : 2.45539 0.037355 0 0 0 0 0 0 0 0 
+
+iter: 0
+Euclidean distance, 1, 570.385, 570.385 ms.
+CompareDistance, 1, 343.076, 343.076 ms.
+UpdateCenters, 1, 52.5609, 52.5609 ms.
+Bootstrapper, 1, 1644.19, 1644.19 ms.
+Total: 570.385 + 343.076 + 52.5609 + 1644.19 = 2610.21 ms
+
+Setting Parameters...
+Generating secret key with hamming weight: 192
+Setting decoding sparse slots to: 32768
+gpu_ckks_msg_vec_size: 65536
+Generating Optimal Minimax Polynomials...
+xAdding Bootstrapping Keys...
+create galois keys. 
+relin_keys size: 62
+Galois key size: 62
+Galois key generated from steps vector.
+Generating Linear Transformation Coefficients...
+xxxxpre compute done.
+
+4 points. 2 dim. 4 centers. 
+input : 
+line 0 : 0 0 0 0 0 0 0 0 0 0 
+line 1 : 0 1 0 0 0 0 0 0 0 0 
+line 2 : 1 0 0 0 0 0 0 0 0 0 
+line 3 : 1 1 0 0 0 0 0 0 0 0 
+
+init center : 
+line 0 : 0 0 0 0 0 0 0 0 0 0 
+line 1 : 0 1 0 0 0 0 0 0 0 0 
+line 2 : 1 0 0 0 0 0 0 0 0 0 
+line 3 : 1 1 0 0 0 0 0 0 0 0 
+
+iter: 0
+begin level: 26
+Euclidean distance, 1, 153.806, 153.806 ms.
+distence level: 24
+distence chain: 17
+CompareDistance, 1, 6513.68, 6513.68 ms.
+bool_cipher level: 4
+bool_cipher chain: 37
+UpdateCenters, 1, 73.7239, 73.7239 ms.
+center_cipher level: 1
+Bootstrapper, 1, 3028.66, 3028.66 ms.
+center_cipher level: 26
+Total: 153.806 + 6513.68 + 73.7239 + 3028.66 = 9769.87 ms
+
+8 points. 2 dim. 4 centers. 
+input : 
+line 0 : 0 0 0 0 0 0 0 0 0 0 
+line 1 : 0.1 -0.1 0 0 0 0 0 0 0 0 
+line 2 : 0.4 -0.2 0 0 0 0 0 0 0 0 
+line 3 : 0.5 -0.3 0 0 0 0 0 0 0 0 
+line 4 : 2.09 0 0 0 0 0 0 0 0 0 
+line 5 : 2.19 -0.1 0 0 0 0 0 0 0 0 
+line 6 : 1.56317 -0.277107 0 0 0 0 0 0 0 0 
+line 7 : 0.596559 0.236656 0 0 0 0 0 0 0 0 
+
+init center : 
+line 0 : 0 0 0 0 0 0 0 0 0 0 
+line 1 : 0.1 -0.1 0 0 0 0 0 0 0 0 
+line 2 : 0.4 -0.2 0 0 0 0 0 0 0 0 
+line 3 : 0.5 -0.3 0 0 0 0 0 0 0 0 
+
+iter: 0
+begin level: 26
+Euclidean distance, 1, 330.991, 330.991 ms.
+distence level: 24
+distence chain: 17
+CompareDistance, 1, 13070.9, 13070.9 ms.
+bool_cipher level: 4
+bool_cipher chain: 37
+UpdateCenters, 1, 145.756, 145.756 ms.
+center_cipher level: 1
+Bootstrapper, 1, 2990.72, 2990.72 ms.
+Total: 330.991 + 13070.9 + 145.756 + 2990.72 = 16538.4 ms
+
+16 points. 2 dim. 4 centers. 
+input : 
+line 0 : 0 0 0 0 0 0 0 0 0 0 
+line 1 : 0.1 -0.1 0 0 0 0 0 0 0 0 
+line 2 : 0.523694 -0.08052 0 0 0 0 0 0 0 0 
+line 3 : 0.160974 -0.031194 0 0 0 0 0 0 0 0 
+line 4 : 0.4 -0.2 0 0 0 0 0 0 0 0 
+line 5 : 0.5 -0.3 0 0 0 0 0 0 0 0 
+line 6 : 1.03308 -0.662914 0 0 0 0 0 0 0 0 
+line 7 : 0.967656 -0.793741 0 0 0 0 0 0 0 0 
+line 8 : 2.09 0 0 0 0 0 0 0 0 0 
+line 9 : 2.19 -0.1 0 0 0 0 0 0 0 0 
+line 10 : 0.866962 -0.754303 0 0 0 0 0 0 0 0 
+line 11 : 1.31026 -0.042763 0 0 0 0 0 0 0 0 
+line 12 : 1.56317 -0.277107 0 0 0 0 0 0 0 0 
+line 13 : 0.596559 0.236656 0 0 0 0 0 0 0 0 
+line 14 : 1.06659 0.845363 0 0 0 0 0 0 0 0 
+line 15 : 1.6404 0.2373 0 0 0 0 0 0 0 0 
+
+init center : 
+line 0 : 0 0 0 0 0 0 0 0 0 0 
+line 1 : 0.1 -0.1 0 0 0 0 0 0 0 0 
+line 2 : 0.523694 -0.08052 0 0 0 0 0 0 0 0 
+line 3 : 0.160974 -0.031194 0 0 0 0 0 0 0 0 
+
+iter: 0
+begin level: 26
+Euclidean distance, 1, 568.915, 568.915 ms.
+distence level: 24
+distence chain: 17
+CompareDistance, 1, 25875.7, 25875.7 ms.
+bool_cipher level: 4
+bool_cipher chain: 37
+UpdateCenters, 1, 288.053, 288.053 ms.
+center_cipher level: 1
+Bootstrapper, 1, 2994.08, 2994.08 ms.
+boot center 0 : 0.00314183 -0.00164552 -3.13555e-07 -3.1269e-07 -3.12975e-07 -3.13481e-07 -3.13029e-07 -3.13532e-07 -3.13649e-07 -3.13039e-07 
+boot center 1 : 0.1 -0.0984191 -3.13204e-07 -3.12559e-07 -3.13024e-07 -3.1347e-07 -3.13086e-07 -3.13286e-07 -3.13631e-07 -3.13154e-07 
+boot center 2 : 0.523696 -0.0805207 -3.13098e-07 -3.13339e-07 -3.13314e-07 -3.12966e-07 -3.13423e-07 -3.12848e-07 -3.13432e-07 -3.1312e-07 
+boot center 3 : 0.160974 -0.0311945 -3.12692e-07 -3.13231e-07 -3.13166e-07 -3.13005e-07 -3.13562e-07 -3.13409e-07 -3.13409e-07 -3.13124e-07 
+center_cipher level: 26
+sum time: 29726.8
+
+16 points. 2 dim. 8 centers. 
+input : 
+line 0 : 0 0 0 0 0 0 0 0 0 0 
+line 1 : 0.1 -0.1 0 0 0 0 0 0 0 0 
+line 2 : 0.523694 -0.08052 0 0 0 0 0 0 0 0 
+line 3 : 0.160974 -0.031194 0 0 0 0 0 0 0 0 
+line 4 : 0.4 -0.2 0 0 0 0 0 0 0 0 
+line 5 : 0.5 -0.3 0 0 0 0 0 0 0 0 
+line 6 : 1.03308 -0.662914 0 0 0 0 0 0 0 0 
+line 7 : 0.967656 -0.793741 0 0 0 0 0 0 0 0 
+line 8 : 2.09 0 0 0 0 0 0 0 0 0 
+line 9 : 2.19 -0.1 0 0 0 0 0 0 0 0 
+line 10 : 0.866962 -0.754303 0 0 0 0 0 0 0 0 
+line 11 : 1.31026 -0.042763 0 0 0 0 0 0 0 0 
+line 12 : 1.56317 -0.277107 0 0 0 0 0 0 0 0 
+line 13 : 0.596559 0.236656 0 0 0 0 0 0 0 0 
+line 14 : 1.06659 0.845363 0 0 0 0 0 0 0 0 
+line 15 : 1.6404 0.2373 0 0 0 0 0 0 0 0 
+
+init center : 
+line 0 : 0 0 0 0 0 0 0 0 0 0 
+line 1 : 0.1 -0.1 0 0 0 0 0 0 0 0 
+line 2 : 0.523694 -0.08052 0 0 0 0 0 0 0 0 
+line 3 : 0.160974 -0.031194 0 0 0 0 0 0 0 0 
+line 4 : 0.4 -0.2 0 0 0 0 0 0 0 0 
+line 5 : 0.5 -0.3 0 0 0 0 0 0 0 0 
+line 6 : 1.03308 -0.662914 0 0 0 0 0 0 0 0 
+line 7 : 0.967656 -0.793741 0 0 0 0 0 0 0 0 
+
+iter: 0
+begin level: 26
+Euclidean distance, 1, 1164.37, 1164.37 ms.
+distence level: 24
+distence chain: 17
+CompareDistance, 1, 39096.2, 39096.2 ms.
+bool_cipher level: 4
+bool_cipher chain: 37
+UpdateCenters, 1, 616.446, 616.446 ms.
+center_cipher level: 1
+Bootstrapper, 1, 5998.54, 5998.54 ms.
+boot center 0 : 0.00310889 -0.00165324 -3.13571e-07 -3.12641e-07 -3.1302e-07 -3.13515e-07 -3.12968e-07 -3.1356e-07 -3.13659e-07 -3.1304e-07 
+boot center 1 : 0.1 -0.0982853 -3.1313e-07 -3.12552e-07 -3.13027e-07 -3.1344e-07 -3.13131e-07 -3.13288e-07 -3.13633e-07 -3.13126e-07 
+boot center 2 : 0.523696 -0.0805207 -3.13101e-07 -3.13329e-07 -3.13306e-07 -3.12973e-07 -3.13411e-07 -3.12843e-07 -3.1344e-07 -3.13142e-07 
+boot center 3 : 0.160974 -0.0311945 -3.12696e-07 -3.13233e-07 -3.13163e-07 -3.1301e-07 -3.13543e-07 -3.13391e-07 -3.13424e-07 -3.13121e-07 
+boot center 4 : 0.400002 -0.200001 -3.1286e-07 -3.13747e-07 -3.13016e-07 -3.13357e-07 -3.13094e-07 -3.1321e-07 -3.13357e-07 -3.13171e-07 
+boot center 5 : 0.500002 -0.300002 -3.12873e-07 -3.1284e-07 -3.13036e-07 -3.13451e-07 -3.13346e-07 -3.13177e-07 -3.13393e-07 -3.13243e-07 
+boot center 6 : 1.03308 -0.662917 -3.1303e-07 -3.13129e-07 -3.13375e-07 -3.13299e-07 -3.13354e-07 -3.13242e-07 -3.13383e-07 -3.1337e-07 
+boot center 7 : 0.96766 -0.793745 -3.13008e-07 -3.13619e-07 -3.13488e-07 -3.13302e-07 -3.13292e-07 -3.13261e-07 -3.13649e-07 -3.13299e-07 
+center_cipher level: 26
+sum time: 46875.6
+
+32 points. 2 dim. 8 centers. 
+input : 
+line 0 : 0 0 0 0 0 0 0 0 0 0 
+line 1 : 0.1 -0.1 0 0 0 0 0 0 0 0 
+line 2 : 0.523694 -0.08052 0 0 0 0 0 0 0 0 
+line 3 : 0.160974 -0.031194 0 0 0 0 0 0 0 0 
+line 4 : 0.4 -0.2 0 0 0 0 0 0 0 0 
+line 5 : 0.5 -0.3 0 0 0 0 0 0 0 0 
+line 6 : 1.03308 -0.662914 0 0 0 0 0 0 0 0 
+line 7 : 0.967656 -0.793741 0 0 0 0 0 0 0 0 
+line 8 : 2.09 0 0 0 0 0 0 0 0 0 
+line 9 : 2.19 -0.1 0 0 0 0 0 0 0 0 
+line 10 : 0.866962 -0.754303 0 0 0 0 0 0 0 0 
+line 11 : 1.31026 -0.042763 0 0 0 0 0 0 0 0 
+line 12 : 1.56317 -0.277107 0 0 0 0 0 0 0 0 
+line 13 : 0.596559 0.236656 0 0 0 0 0 0 0 0 
+line 14 : 1.06659 0.845363 0 0 0 0 0 0 0 0 
+line 15 : 1.6404 0.2373 0 0 0 0 0 0 0 0 
+line 16 : 1.07252 0.642227 0 0 0 0 0 0 0 0 
+line 17 : 1.46641 -0.317049 0 0 0 0 0 0 0 0 
+line 18 : 0.87813 -0.063929 0 0 0 0 0 0 0 0 
+line 19 : 0.944096 0.848191 0 0 0 0 0 0 0 0 
+line 20 : 1.36093 0.194805 0 0 0 0 0 0 0 0 
+line 21 : 0.779512 0.082003 0 0 0 0 0 0 0 0 
+line 22 : 0.386684 0.296434 0 0 0 0 0 0 0 0 
+line 23 : 1.04682 0.800625 0 0 0 0 0 0 0 0 
+line 24 : 1.26881 0.587846 0 0 0 0 0 0 0 0 
+line 25 : 1.20052 0.581028 0 0 0 0 0 0 0 0 
+line 26 : 0.77293 0.744287 0 0 0 0 0 0 0 0 
+line 27 : 0.827231 0.053824 0 0 0 0 0 0 0 0 
+line 28 : 0.833833 -0.137113 0 0 0 0 0 0 0 0 
+line 29 : 0.133221 0.007552 0 0 0 0 0 0 0 0 
+line 30 : 1.12963 0.574021 0 0 0 0 0 0 0 0 
+line 31 : 0.692178 -0.227654 0 0 0 0 0 0 0 0 
+
+init center : 
+line 0 : 0 0 0 0 0 0 0 0 0 0 
+line 1 : 0.1 -0.1 0 0 0 0 0 0 0 0 
+line 2 : 0.523694 -0.08052 0 0 0 0 0 0 0 0 
+line 3 : 0.160974 -0.031194 0 0 0 0 0 0 0 0 
+line 4 : 0.4 -0.2 0 0 0 0 0 0 0 0 
+line 5 : 0.5 -0.3 0 0 0 0 0 0 0 0 
+line 6 : 1.03308 -0.662914 0 0 0 0 0 0 0 0 
+line 7 : 0.967656 -0.793741 0 0 0 0 0 0 0 0 
+
+iter: 0
+begin level: 26
+Euclidean distance, 1, 2243.9, 2243.9 ms.
+distence level: 24
+distence chain: 17
+CompareDistance, 1, 77964.5, 77964.5 ms.
+bool_cipher level: 4
+bool_cipher chain: 37
+UpdateCenters, 1, 1226.82, 1226.82 ms.
+center_cipher level: 1
+Bootstrapper, 1, 6042.46, 6042.46 ms.
+boot center 0 : 0.00307338 -0.000257449 -3.12928e-07 -3.12759e-07 -3.12881e-07 -3.13442e-07 -3.13678e-07 -3.13232e-07 -3.13434e-07 -3.1346e-07 
+boot center 1 : 0.1 -0.0977096 -3.1321e-07 -3.12546e-07 -3.13027e-07 -3.13428e-07 -3.13137e-07 -3.13326e-07 -3.13634e-07 -3.13126e-07 
+boot center 2 : 0.523696 -0.0805207 -3.13102e-07 -3.13333e-07 -3.13314e-07 -3.12978e-07 -3.13415e-07 -3.12849e-07 -3.1342e-07 -3.13126e-07 
+boot center 3 : 0.160974 -0.0311945 -3.127e-07 -3.13234e-07 -3.13168e-07 -3.13014e-07 -3.13552e-07 -3.13403e-07 -3.13415e-07 -3.13132e-07 
+boot center 4 : 0.400002 -0.200001 -3.1286e-07 -3.13744e-07 -3.13009e-07 -3.13367e-07 -3.13096e-07 -3.13217e-07 -3.13363e-07 -3.13165e-07 
+boot center 5 : 0.500002 -0.300002 -3.1287e-07 -3.12841e-07 -3.1303e-07 -3.13448e-07 -3.13342e-07 -3.13165e-07 -3.13389e-07 -3.13242e-07 
+boot center 6 : 1.03308 -0.662917 -3.13026e-07 -3.13131e-07 -3.13369e-07 -3.13293e-07 -3.1335e-07 -3.13244e-07 -3.13385e-07 -3.13378e-07 
+boot center 7 : 0.96766 -0.793745 -3.13008e-07 -3.13617e-07 -3.13488e-07 -3.13303e-07 -3.13294e-07 -3.13264e-07 -3.13657e-07 -3.1331e-07 
+center_cipher level: 26
+sum time: 87477.6

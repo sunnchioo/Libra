@@ -1,0 +1,116 @@
+## last boot
+Setting Parameters...
+Generating secret key with hamming weight: 192
+Setting decoding sparse slots to: 32768
+gpu_ckks_msg_vec_size: 65536
+Generating Optimal Minimax Polynomials...
+Adding Bootstrapping Keys...
+create galois keys. 
+relin_keys size: 62
+Galois key size: 62
+Galois key generated from steps vector.
+Generating Linear Transformation Coefficients...
+pre compute done.
+
+input : 
+line 0 : 0 0.1 0.2 2.09 2.19 0 0 0 0 0 
+line 1 : 0 -0.1 -0.2 0 -0.1 0 0 0 0 0 
+
+repermutate input : 
+line 0 : 0 0.1 0.2 2.09 2.19 0 0.1 0.2 2.09 2.19 
+line 1 : 0 -0.1 -0.2 0 -0.1 0 -0.1 -0.2 0 -0.1 
+
+repermutate center : 
+line 0 : 0 0 0 0 0 2.19 2.19 2.19 2.19 2.19 
+line 1 : 0 0 0 0 0 -0.1 -0.1 -0.1 -0.1 -0.1 
+
+points : -3.93088e-09 0.1 0.2 2.09 2.19 8.59634e-11 0.1 0.2 2.09 2.19 
+center : 1.47318e-09 -1.47472e-09 -7.79511e-10 6.55924e-10 7.18172e-10 2.19 2.19 2.19 2.19 2.19 
+Euclidean distance, 1, 6.30144, 6.30144 ms.
+distence level: 24
+CompareDistance, 1, 57.4065, 57.4065 ms.
+bool_cipher level: 5
+UpdateCenters, 1, 49.9364, 49.9364 ms.
+center 0 : 0.0600291 0.0600291 0.0600291 0.0600291 0.0600291 2.16995 2.16995 2.16995 2.16995 2.16995 
+center 1 : -0.0599985 -0.0599984 -0.0599984 -0.0599984 -0.0599985 -0.0800007 -0.0800007 -0.0800007 -0.0800007 -0.0800007 
+center_cipher level: 1
+Bootstrapper, 1, 1683.61, 1683.61 ms.
+center_cipher level: 25
+Total: 6.30144 + 57.4065 + 49.9364 + 1683.61 = 1797.25 ms.
+
+## middle boot
+Setting Parameters...
+Generating secret key with hamming weight: 192
+Setting decoding sparse slots to: 32768
+gpu_ckks_msg_vec_size: 65536
+Generating Optimal Minimax Polynomials...
+Adding Bootstrapping Keys...
+create galois keys. 
+relin_keys size: 62
+Galois key size: 62
+Galois key generated from steps vector.
+Generating Linear Transformation Coefficients...
+pre compute done.
+
+input : 
+line 0 : 0 0.1 0.2 2.09 2.19 0 0 0 0 0 
+line 1 : 0 -0.1 -0.2 0 -0.1 0 0 0 0 0 
+
+repermutate input : 
+line 0 : 0 0.1 0.2 2.09 2.19 0 0.1 0.2 2.09 2.19 
+line 1 : 0 -0.1 -0.2 0 -0.1 0 -0.1 -0.2 0 -0.1 
+
+repermutate center : 
+line 0 : 0 0 0 0 0 2.19 2.19 2.19 2.19 2.19 
+line 1 : 0 0 0 0 0 -0.1 -0.1 -0.1 -0.1 -0.1 
+
+points : 3.7089e-10 0.1 0.2 2.09 2.19 -1.69111e-09 0.1 0.2 2.09 2.19 
+center : -1.62245e-09 2.23655e-10 -3.83799e-10 2.08014e-11 3.00425e-10 2.19 2.19 2.19 2.19 2.19 
+Euclidean distance, 1, 3.79926, 3.79926 ms.
+distence level: 20
+CompareDistance, 1, 43.2159, 43.2159 ms.
+bool_cipher level: 1
+Bootstrapper, 1, 1289.85, 1289.85 ms.
+UpdateCenters, 1, 55.938, 55.938 ms.
+center 0 : 0.0598181 0.0598182 0.0598182 0.0598182 0.0598181 2.17025 2.17025 2.17025 2.17025 2.17025 
+center 1 : -0.0599793 -0.0599793 -0.0599793 -0.0599793 -0.0599793 -0.0800056 -0.0800055 -0.0800056 -0.0800055 -0.0800056 
+center_cipher level: 17
+Total: 3.79926 + 43.2159 + 1289.85 + 55.938 = 1392.8 ms.
+
+## no boot
+Setting Parameters...
+Generating secret key with hamming weight: 192
+Setting decoding sparse slots to: 32768
+gpu_ckks_msg_vec_size: 65536
+Generating Optimal Minimax Polynomials...
+Adding Bootstrapping Keys...
+create galois keys. 
+relin_keys size: 62
+Galois key size: 62
+Galois key generated from steps vector.
+Generating Linear Transformation Coefficients...
+pre compute done.
+
+input : 
+line 0 : 0 0.1 0.2 2.09 2.19 0 0 0 0 0 
+line 1 : 0 -0.1 -0.2 0 -0.1 0 0 0 0 0 
+
+repermutate input : 
+line 0 : 0 0.1 0.2 2.09 2.19 0 0.1 0.2 2.09 2.19 
+line 1 : 0 -0.1 -0.2 0 -0.1 0 -0.1 -0.2 0 -0.1 
+
+repermutate center : 
+line 0 : 0 0 0 0 0 2.19 2.19 2.19 2.19 2.19 
+line 1 : 0 0 0 0 0 -0.1 -0.1 -0.1 -0.1 -0.1 
+
+points : 4.26555e-09 0.1 0.2 2.09 2.19 -8.54912e-10 0.1 0.2 2.09 2.19 
+center : -4.44715e-10 -9.13463e-10 1.01833e-10 -2.7878e-09 1.03418e-09 2.19 2.19 2.19 2.19 2.19 
+Euclidean distance, 1, 6.25011, 6.25011 ms.
+distence level: 24
+CompareDistance, 1, 58.9701, 58.9701 ms.
+bool_cipher level: 5
+UpdateCenters, 1, 50.6532, 50.6532 ms.
+center 0 : 0.0600291 0.0600291 0.0600291 0.0600291 0.0600291 2.16995 2.16995 2.16995 2.16995 2.16995 
+center 1 : -0.0599984 -0.0599984 -0.0599984 -0.0599984 -0.0599984 -0.0800007 -0.0800007 -0.0800007 -0.0800007 -0.0800007 
+center_cipher level: 1
+Total: 6.25011 + 58.9701 + 50.6532 = 115.873 ms.

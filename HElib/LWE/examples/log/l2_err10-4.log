@@ -1,0 +1,251 @@
+l = 4, Bgbit = 6
+Setting LWE Parameters...
+try loading keys
+XBoostrapping, 1, 54.5587, 54.5587 ms.
+cuLWE value vector: X result
+LWE ciphertext vector: X result
+error: 0.000102942 size: 1
+
+XBoostrapping, 1, 53.2818, 53.2818 ms.
+cuLWE value vector: X result
+LWE ciphertext vector: X result
+error: 0.00031663 size: 2
+
+XBoostrapping, 1, 52.7102, 52.7102 ms.
+cuLWE value vector: X result
+LWE ciphertext vector: X result
+error: 0.000643709 size: 4
+
+XBoostrapping, 1, 54.4145, 54.4145 ms.
+cuLWE value vector: X result
+LWE ciphertext vector: X result
+error: 0.000453961 size: 8
+
+XBoostrapping, 1, 53.117, 53.117 ms.
+cuLWE value vector: X result
+LWE ciphertext vector: X result
+error: 0.000610109 size: 16
+
+XBoostrapping, 1, 52.9028, 52.9028 ms.
+cuLWE value vector: X result
+LWE ciphertext vector: X result
+error: 0.000387913 size: 32
+
+XBoostrapping, 1, 53.103, 53.103 ms.
+cuLWE value vector: X result
+LWE ciphertext vector: X result
+error: 0.000517487 size: 64
+
+XBoostrapping, 1, 104.258, 104.258 ms.
+cuLWE value vector: X result
+LWE ciphertext vector: X result
+error: 0.00048581 size: 128
+
+XBoostrapping, 1, 157.243, 157.243 ms.
+cuLWE value vector: X result
+LWE ciphertext vector: X result
+error: 0.000477004 size: 256
+
+XBoostrapping, 1, 294.524, 294.524 ms.
+cuLWE value vector: X result
+LWE ciphertext vector: X result
+error: 0.000449366 size: 512
+
+XBoostrapping, 1, 556.091, 556.091 ms.
+cuLWE value vector: X result
+LWE ciphertext vector: X result
+error: 0.000470106 size: 1024
+
+XBoostrapping, 1, 1071.39, 1071.39 ms.
+cuLWE value vector: X result
+LWE ciphertext vector: X result
+error: 0.000474518 size: 2048
+
+XBoostrapping, 1, 2121.55, 2121.55 ms.
+cuLWE value vector: X result
+LWE ciphertext vector: X result
+error: 0.000470708 size: 4096
+
+XBoostrapping, 1, 4206.96, 4206.96 ms.
+cuLWE value vector: X result
+LWE ciphertext vector: X result
+error: 0.000473719 size: 8192
+
+XBoostrapping, 1, 8408.42, 8408.42 ms.
+cuLWE value vector: X result
+LWE ciphertext vector: X result
+error: 0.000475795 size: 16384
+
+XBoostrapping, 1, 16734.9, 16734.9 ms.
+cuLWE value vector: X result
+LWE ciphertext vector: X result
+error: 0.000477948 size: 32768
+
+
+
+
+l = 3, Bgbit = 8
+Setting LWE Parameters...
+try loading keys
+XBoostrapping, 1, 43.522, 43.522 ms.
+cuLWE value vector: X result
+LWE ciphertext vector: X result
+error: 0.000617953 size: 1
+
+XBoostrapping, 1, 42.4049, 42.4049 ms.
+cuLWE value vector: X result
+LWE ciphertext vector: X result
+error: 0.000532122 size: 2
+
+XBoostrapping, 1, 41.9891, 41.9891 ms.
+cuLWE value vector: X result
+LWE ciphertext vector: X result
+error: 0.000597951 size: 4
+
+XBoostrapping, 1, 41.8232, 41.8232 ms.
+cuLWE value vector: X result
+LWE ciphertext vector: X result
+error: 0.000493519 size: 8
+
+XBoostrapping, 1, 42.6437, 42.6437 ms.
+cuLWE value vector: X result
+LWE ciphertext vector: X result
+error: 0.000541932 size: 16
+
+XBoostrapping, 1, 42.1678, 42.1678 ms.
+cuLWE value vector: X result
+LWE ciphertext vector: X result
+error: 0.000558747 size: 32
+
+XBoostrapping, 1, 42.4652, 42.4652 ms.
+cuLWE value vector: X result
+LWE ciphertext vector: X result
+error: 0.000475053 size: 64
+
+XBoostrapping, 1, 83.4167, 83.4167 ms.
+cuLWE value vector: X result
+LWE ciphertext vector: X result
+error: 0.000454345 size: 128
+
+XBoostrapping, 1, 149.66, 149.66 ms.
+cuLWE value vector: X result
+LWE ciphertext vector: X result
+error: 0.00047783 size: 256
+
+XBoostrapping, 1, 246.815, 246.815 ms.
+cuLWE value vector: X result
+LWE ciphertext vector: X result
+error: 0.000480519 size: 512
+
+XBoostrapping, 1, 435.873, 435.873 ms.
+cuLWE value vector: X result
+LWE ciphertext vector: X result
+error: 0.000471686 size: 1024
+
+XBoostrapping, 1, 873.246, 873.246 ms.
+cuLWE value vector: X result
+LWE ciphertext vector: X result
+error: 0.00047368 size: 2048
+
+XBoostrapping, 1, 1710.16, 1710.16 ms.
+cuLWE value vector: X result
+LWE ciphertext vector: X result
+error: 0.00046232 size: 4096
+
+XBoostrapping, 1, 3331.4, 3331.4 ms.
+cuLWE value vector: X result
+LWE ciphertext vector: X result
+error: 0.000473343 size: 8192
+
+XBoostrapping, 1, 6718.34, 6718.34 ms.
+cuLWE value vector: X result
+LWE ciphertext vector: X result
+error: 0.000473533 size: 16384
+
+XBoostrapping, 1, 13433.5, 13433.5 ms.
+cuLWE value vector: X result
+LWE ciphertext vector: X result
+error: 0.000471742 size: 32768
+
+
+Setting LWE Parameters...
+try loading keys
+XBoostrapping, 1, 43.5456, 43.5456 ms.
+cuLWE value vector: X result
+LWE ciphertext vector: X result
+error: 0.000289954 size: 1
+
+XBoostrapping, 1, 42.4878, 42.4878 ms.
+cuLWE value vector: X result
+LWE ciphertext vector: X result
+error: 0.00116347 size: 2
+
+XBoostrapping, 1, 41.9779, 41.9779 ms.
+cuLWE value vector: X result
+LWE ciphertext vector: X result
+error: 0.000716235 size: 4
+
+XBoostrapping, 1, 41.7172, 41.7172 ms.
+cuLWE value vector: X result
+LWE ciphertext vector: X result
+error: 0.0006199 size: 8
+
+XBoostrapping, 1, 42.6007, 42.6007 ms.
+cuLWE value vector: X result
+LWE ciphertext vector: X result
+error: 0.00045107 size: 16
+
+XBoostrapping, 1, 42.1383, 42.1383 ms.
+cuLWE value vector: X result
+LWE ciphertext vector: X result
+error: 0.000492209 size: 32
+
+XBoostrapping, 1, 42.8554, 42.8554 ms.
+cuLWE value vector: X result
+LWE ciphertext vector: X result
+error: 0.000473622 size: 64
+
+XBoostrapping, 1, 83.4385, 83.4385 ms.
+cuLWE value vector: X result
+LWE ciphertext vector: X result
+error: 0.000489387 size: 128
+
+XBoostrapping, 1, 152.757, 152.757 ms.
+cuLWE value vector: X result
+LWE ciphertext vector: X result
+error: 0.000471291 size: 256
+
+XBoostrapping, 1, 260.474, 260.474 ms.
+cuLWE value vector: X result
+LWE ciphertext vector: X result
+error: 0.000489368 size: 512
+
+XBoostrapping, 1, 467.044, 467.044 ms.
+cuLWE value vector: X result
+LWE ciphertext vector: X result
+error: 0.000476347 size: 1024
+
+XBoostrapping, 1, 878.165, 878.165 ms.
+cuLWE value vector: X result
+LWE ciphertext vector: X result
+error: 0.000450385 size: 2048
+
+XBoostrapping, 1, 1724.3, 1724.3 ms.
+cuLWE value vector: X result
+LWE ciphertext vector: X result
+error: 0.000461176 size: 4096
+
+XBoostrapping, 1, 3308.9, 3308.9 ms.
+cuLWE value vector: X result
+LWE ciphertext vector: X result
+error: 0.000472237 size: 8192
+
+XBoostrapping, 1, 6602.63, 6602.63 ms.
+cuLWE value vector: X result
+LWE ciphertext vector: X result
+error: 0.000470786 size: 16384
+
+XBoostrapping, 1, 13307.9, 13307.9 ms.
+cuLWE value vector: X result
+LWE ciphertext vector: X result
+error: 0.000471944 size: 32768

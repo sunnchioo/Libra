@@ -1,0 +1,33 @@
+Setting RLWE...
+Setting Parameters...
+modulus: 2251799809884161 70368736706561 70368737230849 70368738410497 70368739065857 70368740769793 2251799810670593 2251799813554177 
+Generating secret key with hamming weight: 192
+Setting decoding sparse slots to: 32768
+gpu_ckks_msg_vec_size: 65536
+Generating Optimal Minimax Polynomials...
+Adding Bootstrapping Keys...
+create galois keys. 
+Galois key generated from steps vector.
+Generating Linear Transformation Coefficients...
+Setting LWE...
+try loading keys
+Setting conver...
+Gen Extract Key
+Setting input...
+input: 0 1 2 3 0 1 2 3 0 1 
+decrypted cipher: modulus: 6 data: 2.08215e-09 1 2 3 -1.12128e-11 1 2 3 3.0848e-12 1 
+extract_indices: 0 -- 0
+
+RLWEToLWEs 
+modulus size: 4
+slottocoeff_3, 1, 120.537, 120.537 ms.
+after slottocoeff_sparse_3: modulus: 1 data: (2.38337e-09, 2.6921e-10j) (1, -3.84347e-10j) (2, -1.41949e-09j) (3, 2.18931e-09j) (-2.68699e-10, 9.69251e-10j) (1, -1.78768e-09j) (2, 1.40022e-09j) (3, -1.50587e-09j) (1.47436e-09, 1.25846e-09j) (1, 1.56361e-09j) ... (2, 4.54591e-10j) (3, -1.42563e-09j) (-2.37861e-10, -5.63872e-10j) (1, -1.22802e-09j) (2, -2.78135e-10j) (3, 1.18815e-09j) (3.13065e-11, 1.76499e-11j) (1, -3.84545e-11j) (2, -1.30045e-09j) (3, 1.6048e-09j) 
+extract_index: 0
+SampleExtract, 1, 0.09168, 0.09168 ms.
+SampleExtract done
+res of exctract: 2.38337e-09
+LWEKeySwitch, 1, 17.1354, 17.1354 ms.
+ExtractCoeffs, 1, 18.4755, 18.4755 ms.
+Extract, 1, 139.441, 139.441 ms.
+ectract end.
+plain: 8.42721e-09
