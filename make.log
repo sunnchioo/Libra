@@ -1,0 +1,25 @@
+Step 1: Using unified LLVM, MLIR, Clang, and Polygeist build
+
+mkdir build
+cd build
+cmake -G Ninja ../llvm-project/llvm \
+  -DLLVM_ENABLE_PROJECTS="clang;mlir" \
+  -DLLVM_EXTERNAL_PROJECTS="polygeist" \
+  -DLLVM_EXTERNAL_POLYGEIST_SOURCE_DIR=.. \
+  -DLLVM_TARGETS_TO_BUILD="host" \
+  -DLLVM_ENABLE_ASSERTIONS=ON \
+  -DCMAKE_BUILD_TYPE=DEBUG
+ninja
+ninja check-polygeist-opt && ninja check-cgeist
+
+Step 2: Build New LLVM, MLIR, and Clang
+
+mkdir llvm-project/build
+cd llvm-project/build
+cmake -G Ninja ../llvm \
+  -DLLVM_ENABLE_PROJECTS="mlir;clang" \
+  -DLLVM_TARGETS_TO_BUILD="host" \
+  -DLLVM_ENABLE_ASSERTIONS=ON \
+  -DCMAKE_BUILD_TYPE=DEBUG
+ninja
+ninja check-mlir
