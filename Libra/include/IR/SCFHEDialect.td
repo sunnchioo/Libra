@@ -1,21 +1,29 @@
 #ifndef DIALECT_SCFHE
 #define DIALECT_SCFHE
+
 include "mlir/IR/DialectBase.td"
+include "mlir/IR/OpBase.td"
+include "mlir/Dialect/Affine/IR/AffineOps.td"
 
 def SCFHE_Dialect : Dialect{
   // The name of the dialect.
   let name = "scfhe";
 
   // Short summary of the dialect.
-  let summary = "Unified Formulation of Libra FHE";
+  let summary = "Unified Representation of FHE IR.";
 
   // The description of the dialect.
-  let description = "The dialect defines the unified representation of SCFHE, laying the groundwork for the representation of cross-schemes FHE.";
+  let description = "The first stage of converting a plaintext program to a ciphertext program involves using FHE IR to represent data types, computational processes, and related operations.";
 
   // A list of dialects this dialect will load on construction as dependencies.
   // These are dialects that this dialect may involve in canonicalization
-  // pattern or interfaces.let dependentDialects = ["::mlir::affine::TensorDialect"];
-  let discardableAttrs = (ins);
+  // pattern or interfaces.
+  list<string> dependentDialects = ["::mlir::affine::AffineDialect"];
+
+  // A list of key/value pair representing an attribute type and a name.
+  // This will generate helper classes on the dialect to be able to
+  // manage discardable attributes on operations in a type safe way.
+  dag discardableAttrs = (ins);
 
   // The C++ namespace that ops of this dialect should be placed into.
   //
@@ -27,11 +35,11 @@ def SCFHE_Dialect : Dialect{
   // Note that this works in conjunction with dialect C++ code. Depending on how
   // the generated files are included into the dialect, you may want to specify
   // a full namespace path or a partial one.
-  let cppNamespace = "::mlir::north_star";
+  let cppNamespace = "mlir::scfhe";
 
   // An optional code block containing extra declarations to place in the
   // dialect declaration.
-  let extraClassDeclaration = [{
+  code extraClassDeclaration = [{
     static void sayHello();
   }];
 
@@ -75,7 +83,6 @@ def SCFHE_Dialect : Dialect{
 
   // Whether inherent Attributes defined in ODS will be stored as Properties.
   bit usePropertiesForAttributes = 1;
-
 }
 
 #endif // DIALECT_SCFHE

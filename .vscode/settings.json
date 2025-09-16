@@ -1,3 +1,6 @@
 {
-    "C_Cpp.default.compilerPath": "/usr/bin/g++-11"
+    "C_Cpp.default.compilerPath": "/usr/bin/g++-13",
+    "files.associations": {
+        "*.inc": "cpp"
+    }
 }
