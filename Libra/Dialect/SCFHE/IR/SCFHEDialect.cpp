@@ -1,8 +1,8 @@
-#include "IR/SCFHEDialect.h"
+#include "SCFHEDialect.h"
 
 #include "llvm/Support/raw_ostream.h"
 #define FIX
-#include "IR/SCFHEDialect.cpp.inc"
+#include "SCFHEDialect.cpp.inc"
 #undef FIX
 
 namespace mlir::scfhe {

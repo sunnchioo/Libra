@@ -1,0 +1,6 @@
+include_directories(${CMAKE_CURRENT_SOURCE_DIR}/IR)
+include_directories(${CMAKE_CURRENT_BINARY_DIR}/IR)
+add_subdirectory(IR)
+add_subdirectory(Pass)
+add_executable(scfhe "main.cpp")
+target_link_libraries(scfhe MLIRSCFHEDialect)

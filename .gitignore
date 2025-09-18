@@ -1,6 +1,6 @@
-build/
+build/*
 
-# Tool/*
+install/*
 
 test/Tool/toy/*
 !test/Tool/toy/*.cpp

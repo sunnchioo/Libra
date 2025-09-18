@@ -1,0 +1,2 @@
+1. cmake -G Ninja .. 
+2. ninja scfhe

@@ -35,7 +35,7 @@ def SCFHE_Dialect : Dialect{
   // Note that this works in conjunction with dialect C++ code. Depending on how
   // the generated files are included into the dialect, you may want to specify
   // a full namespace path or a partial one.
-  let cppNamespace = "mlir::scfhe";
+  let cppNamespace = "::mlir::scfhe";
 
   // An optional code block containing extra declarations to place in the
   // dialect declaration.
