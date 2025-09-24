@@ -1,29 +1,31 @@
-#ifndef LIBRA_FLYHE_IR_FLYHEOPS_TD_
-#define LIBRA_FLYHE_IR_FLYHEOPS_TD_
+#ifndef FLYHEOPS_TD_
+#define FLYHEOPS_TD_
 
 include "mlir/IR/OpBase.td"
+include "mlir/Interfaces/InferTypeOpInterface.td"
 include "mlir/Interfaces/SideEffectInterfaces.td"
+
 include "FlyHETypes.td"
+include "FlyHEDialect.td"
 
-def FlyHE_Dialect : Dialect {
-  let name = "flyhe";
-  let cppNamespace = "::mlir::flyhe";
+class FlyHE_Op<string mnemonic, list<Trait> traits = []> :
+        Op<FlyHE_Dialect, mnemonic, traits>;
+
+def SIMDADDOp : FlyHE_Op<"smidadd", [Pure, SameOperandsAndResultType]> {
+    let summary = "Define an add operation.";
+    let description = [{
+        Define an add operation.
+    }];
+
+    let arguments = (ins 
+        UI64:$input0,
+        UI64:$input1
+    );
+    let results = (outs UI64:$res);
+
+    let assemblyFormat = [{
+        $input0 `+` $input1 attr-dict `:` type($input0)
+    }];
 }
 
-// PhantomLoad操作定义
-def PhantomLoadOp : Op<FlyHE_Dialect, "phantom_load",
-    [Pure, HasOperandsInterface, HasResultsInterface]> {
-  let summary = "Load from a FlyHE_SIMDCipher";
-  let description = "Load a value from a FlyHE_SIMDCipher type";
-
-  let arguments = (ins
-    FlyHE_PhantomCipherType:$memref,
-    Variadic<IndexType>:$indices
-  );
-
-  let results = (outs AnyType:$result);
-
-  let assemblyFormat = "$memref `[` $indices `]` attr-dict `:` type($memref)";
-}
-
-#endif // LIBRA_FLYHE_IR_FLYHEOPS_TD_
+#endif // FLYHEOPS_TD_

@@ -1,0 +1,58 @@
+libra-opt: /mnt/data0/home/syt/Libra/Tool/llvm-project/llvm/include/llvm/Support/Casting.h:566: decltype(auto) llvm::cast(const From&) [with To = mlir::detail::TypedValue<mlir::MemRefType>; From = mlir::Value]: Assertion `isa<To>(Val) && "cast<Ty>() argument of incompatible type!"' failed.
+Registering FlyHEDialect...
+=== FlyHEDialect::initialize() running ===
+PLEASE submit a bug report to https://github.com/llvm/llvm-project/issues/ and include the crash backtrace and instructions to reproduce the bug.
+Stack dump:
+0.	Program arguments: /mnt/data0/home/syt/Libra/build/Libra/tools/opt/libra-opt --convert-to-simd --mlir-print-ir-after-all sum.mlir -o opt-sum.mlir
+Stack dump without symbol names (ensure you have llvm-symbolizer in your PATH or set the environment var `LLVM_SYMBOLIZER_PATH` to point to it):
+0  libra-opt 0x0000562030f7d2e8 llvm::sys::PrintStackTrace(llvm::raw_ostream&, int) + 88
+1  libra-opt 0x0000562030f7d773
+2  libra-opt 0x0000562030f7a967 llvm::sys::RunSignalHandlers() + 150
+3  libra-opt 0x0000562030f7cb10
+4  libc.so.6 0x00007f542262d520
+5  libc.so.6 0x00007f54226819fc pthread_kill + 300
+6  libc.so.6 0x00007f542262d476 raise + 22
+7  libc.so.6 0x00007f54226137f3 abort + 211
+8  libc.so.6 0x00007f542261371b
+9  libc.so.6 0x00007f5422624e96
+10 libra-opt 0x000056202593b6ae
+11 libra-opt 0x000056202593b724
+12 libra-opt 0x00005620258d13f0 mlir::affine::AffineLoadOp::fold(mlir::affine::AffineLoadOpGenericAdaptor<llvm::ArrayRef<mlir::Attribute>>) + 162
+13 libra-opt 0x00005620259c17ce
+14 libra-opt 0x00005620259bda36
+15 libra-opt 0x00005620259cc8d0
+16 libra-opt 0x00005620259bc842
+17 libra-opt 0x00005620259b7042
+18 libra-opt 0x0000562030d61399
+19 libra-opt 0x0000562030d590ea mlir::Operation::fold(llvm::ArrayRef<mlir::Attribute>, llvm::SmallVectorImpl<mlir::OpFoldResult>&) + 90
+20 libra-opt 0x0000562030d592d7 mlir::Operation::fold(llvm::SmallVectorImpl<mlir::OpFoldResult>&) + 269
+21 libra-opt 0x000056203075ee69
+22 libra-opt 0x0000562030760992
+23 libra-opt 0x0000562030761ebc
+24 libra-opt 0x0000562025def7b8
+25 libra-opt 0x0000562030761c05
+26 libra-opt 0x0000562030760cd8
+27 libra-opt 0x0000562030760ea0 mlir::applyPatternsGreedily(mlir::Region&, mlir::FrozenRewritePatternSet const&, mlir::GreedyRewriteConfig, bool*) + 249
+28 libra-opt 0x0000562025d88b10
+29 libra-opt 0x0000562025d85ebf
+30 libra-opt 0x00005620309b5559
+31 libra-opt 0x00005620309bda8a
+32 libra-opt 0x0000562025def7b8
+33 libra-opt 0x00005620309c46c5
+34 libra-opt 0x00005620309b5bbc mlir::detail::OpToOpPassAdaptor::run(mlir::Pass*, mlir::Operation*, mlir::AnalysisManager, bool, unsigned int) + 1584
+35 libra-opt 0x00005620309b6230 mlir::detail::OpToOpPassAdaptor::runPipeline(mlir::OpPassManager&, mlir::Operation*, mlir::AnalysisManager, bool, unsigned int, mlir::PassInstrumentor*, mlir::PassInstrumentation::PipelineParentInfo const*) + 742
+36 libra-opt 0x00005620309bc301 mlir::PassManager::runPasses(mlir::Operation*, mlir::AnalysisManager) + 419
+37 libra-opt 0x00005620309bbd33 mlir::PassManager::run(mlir::Operation*) + 3997
+38 libra-opt 0x0000562025cdbcf7
+39 libra-opt 0x0000562025cdc4f6
+40 libra-opt 0x0000562025cdcabb
+41 libra-opt 0x0000562025cde437
+42 libra-opt 0x0000562030dd4a0e
+43 libra-opt 0x0000562030dd4054 mlir::splitAndProcessBuffer(std::unique_ptr<llvm::MemoryBuffer, std::default_delete<llvm::MemoryBuffer>>, llvm::function_ref<llvm::LogicalResult (std::unique_ptr<llvm::MemoryBuffer, std::default_delete<llvm::MemoryBuffer>>, llvm::MemoryBufferRef const&, llvm::raw_ostream&)>, llvm::raw_ostream&, llvm::StringRef, llvm::StringRef) + 209
+44 libra-opt 0x0000562025cdcda2 mlir::MlirOptMain(llvm::raw_ostream&, std::unique_ptr<llvm::MemoryBuffer, std::default_delete<llvm::MemoryBuffer>>, mlir::DialectRegistry&, mlir::MlirOptMainConfig const&) + 689
+45 libra-opt 0x0000562025cdd116 mlir::MlirOptMain(int, char**, llvm::StringRef, llvm::StringRef, mlir::DialectRegistry&) + 693
+46 libra-opt 0x0000562025cdd30d mlir::MlirOptMain(int, char**, llvm::StringRef, mlir::DialectRegistry&) + 322
+47 libra-opt 0x0000562025845413 main + 163
+48 libc.so.6 0x00007f5422614d90
+49 libc.so.6 0x00007f5422614e40 __libc_start_main + 128
+50 libra-opt 0x00005620258452a5 _start + 37

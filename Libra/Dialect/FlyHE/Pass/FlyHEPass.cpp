@@ -1,129 +1,106 @@
-#include "FlyHEDialect.h"
-#include "FlyHEOps.h"
-#include "FlyHETypes.h"
+#include "mlir/Dialect/MemRef/IR/MemRef.h"
+#include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/IR/PatternMatch.h"
-#include "mlir/Pass/Pass.h"
-#include "mlir/Transforms/DialectConversion.h"
+#include "mlir/Rewrite/FrozenRewritePatternSet.h"
+#include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 
-using namespace mlir;
-using namespace flyhe;
+#include "FlyHEPass.h"
 
-// 将memref类型转换为FlyHE_SIMDCipher类型
-struct FlyHETypeConverter : public TypeConverter {
-    FlyHETypeConverter() {
-        // 转换memref类型到FlyHE_SIMDCipher
-        addConversion([](MemRefType memrefType) -> Type {
-            // 假设FlyHE_SIMDCipher需要原始元素类型作为参数
-            return FlyHE_SIMDCipherType::get(memrefType.getContext(),
-                                             memrefType.getElementType());
-        });
+namespace mlir::flyhe {
+#define GEN_PASS_DEF_CONVERTTOSIMDPASS
+#include "FlyHEPass.h.inc"
 
-        // 保持其他类型不变
-        addConversion([](Type type) { return type; });
-    }
-};
+    namespace {
 
-// struct ConvertAffineLoad : public OpRewritePattern<AffineLoadOp> {
-//     using OpRewritePattern::OpRewritePattern;
+        class ConvertMemRefToSIMDCipherPattern : public OpRewritePattern<func::FuncOp> {
+        public:
+            using OpRewritePattern<func::FuncOp>::OpRewritePattern;
 
-//     LogicalResult matchAndRewrite(AffineLoadOp op,
-//                                   PatternRewriter &rewriter) const override {
-//         // 创建新的FlyHE_SIMDCipher加载操作
-//         auto newOp = rewriter.create<PhantomLoadOp>(
-//             op.getLoc(),
-//             op.getType(),
-//             op.getMemRef(),
-//             op.getIndices());
-//         rewriter.replaceOp(op, newOp.getResult());
-//         return success();
-//     }
-// };
+            LogicalResult matchAndRewrite(func::FuncOp funcOp,
+                                          PatternRewriter &rewriter) const final {
+                bool modified = false;
 
-// 模式重写：处理函数参数
-struct ConvertFuncOp : public OpRewritePattern<FuncOp> {
-    using OpRewritePattern::OpRewritePattern;
+                SmallVector<Type, 4> newArgTypes;
+                for (Type argType : funcOp.getArgumentTypes()) {
+                    if (auto memrefType = mlir::dyn_cast<mlir::MemRefType>(argType)) {
+                        Type newType = convertMemRefToSIMDCipher(memrefType, rewriter.getContext());
+                        newArgTypes.push_back(newType);
+                        modified = true;
+                    } else {
+                        newArgTypes.push_back(argType);
+                    }
+                }
 
-    LogicalResult matchAndRewrite(FuncOp op,
-                                  PatternRewriter &rewriter) const override {
-        FlyHETypeConverter typeConverter;
-        auto funcType = op.getFunctionType();
+                SmallVector<Type, 4> newResultTypes;
+                for (Type resultType : funcOp.getResultTypes()) {
+                    if (auto memrefType = mlir::dyn_cast<mlir::MemRefType>(resultType)) {
+                        Type newType = convertMemRefToSIMDCipher(memrefType, rewriter.getContext());
+                        newResultTypes.push_back(newType);
+                        modified = true;
+                    } else {
+                        newResultTypes.push_back(resultType);
+                    }
+                }
 
-        // 转换函数参数类型
-        SmallVector<Type, 4> newInputs;
-        if (!typeConverter.convertTypes(funcType.getInputs(), newInputs))
-            return failure();
+                if (!modified)
+                    return failure();
 
-        // 转换返回值类型
-        SmallVector<Type, 4> newResults;
-        if (!typeConverter.convertTypes(funcType.getResults(), newResults))
-            return failure();
+                FunctionType newFuncType = FunctionType::get(
+                    rewriter.getContext(), newArgTypes, newResultTypes);
 
-        // 创建新的函数类型
-        auto newFuncType = FunctionType::get(op.getContext(), newInputs, newResults);
+                rewriter.modifyOpInPlace(funcOp, [&]() {
+                    funcOp.setType(newFuncType);
+                });
 
-        // 创建新函数
-        auto newFunc = rewriter.create<FuncOp>(op.getLoc(), op.getName(), newFuncType, op.getAttrs());
+                funcOp.walk([&](Operation *op) {
+                    for (unsigned i = 0; i < op->getNumResults(); ++i) {
+                        Type resultType = op->getResultTypes()[i];
+                        if (auto memrefType = mlir::dyn_cast<mlir::MemRefType>(resultType)) {
+                            Type newType = convertMemRefToSIMDCipher(memrefType, rewriter.getContext());
+                            op->getResult(i).setType(newType);
+                        }
+                    }
+                    for (unsigned i = 0; i < op->getNumOperands(); ++i) {
+                        Value operand = op->getOperand(i);
+                        Type operandType = operand.getType();
+                        if (auto memrefType = mlir::dyn_cast<mlir::MemRefType>(operandType)) {
+                            Type newType = convertMemRefToSIMDCipher(memrefType, rewriter.getContext());
+                            operand.setType(newType);
+                        }
+                    }
+                });
 
-        // 复制函数体
-        rewriter.inlineRegionBefore(op.getBody(), newFunc.getBody(), newFunc.getBody().end());
+                return success();
+            }
 
-        // 更新函数参数名称
-        for (auto [oldArg, newArg] : zip(op.getArguments(), newFunc.getArguments()))
-            newArg.setName(oldArg.getName());
+        private:
+            Type convertMemRefToSIMDCipher(mlir::MemRefType memrefType, MLIRContext *ctx) const {
+                ArrayRef<int64_t> shape = memrefType.getShape();
+                Type elementType = memrefType.getElementType();
 
-        rewriter.eraseOp(op);
-        return success();
-    }
-};
+                return SIMDCipherType::get(ctx);
+            }
+        };
 
-// 配置转换目标
-struct FlyHEConversionTarget : public ConversionTarget {
-    FlyHEConversionTarget(MLIRContext &ctx) : ConversionTarget(ctx) {
-        // 标记需要转换的操作
-        addDynamicallyLegalOp<AffineLoadOp>([](AffineLoadOp op) {
-            return !op.getMemRef().getType().isa<MemRefType>();
-        });
+        class ConvertMemRefToSIMDCipher
+            : public impl::ConvertToSIMDPassBase<ConvertMemRefToSIMDCipher> {
+        public:
+            using impl::ConvertToSIMDPassBase<
+                ConvertMemRefToSIMDCipher>::ConvertToSIMDPassBase;
 
-        addDynamicallyLegalOp<FuncOp>([&](FuncOp op) {
-            FlyHETypeConverter converter;
-            return converter.isSignatureLegal(op.getFunctionType());
-        });
+            void runOnOperation() final {
+                Operation *op = getOperation();
 
-        // 其他操作保持合法
-        markUnknownOpDynamicallyLegal([](Operation *) { return true; });
-    }
-};
+                RewritePatternSet patterns(&getContext());
+                patterns.add<ConvertMemRefToSIMDCipherPattern>(&getContext());
 
-// Pass实现
-struct ConvertToFlyHEPass
-    : public PassWrapper<ConvertToFlyHEPass, OperationPass<ModuleOp>> {
-    MLIR_DEFINE_EXPLICIT_INTERNAL_INLINE_TYPE_ID(ConvertToFlyHEPass)
+                FrozenRewritePatternSet frozenPatterns(std::move(patterns));
 
-    void runOnOperation() override {
-        ModuleOp module = getOperation();
-        MLIRContext *ctx = &getContext();
+                if (failed(applyPatternsGreedily(op, frozenPatterns))) {
+                    signalPassFailure();
+                }
+            }
+        };
 
-        FlyHETypeConverter typeConverter;
-        FlyHEConversionTarget target(*ctx);
-
-        // 配置重写模式
-        RewritePatternSet patterns(ctx);
-        patterns.add<ConvertAffineLoad, ConvertFuncOp>(ctx);
-
-        // 执行转换
-        if (failed(applyPartialConversion(module, target, std::move(patterns)))) {
-            signalPassFailure();
-        }
-    }
-};
-
-// 注册Pass
-namespace mlir {
-    namespace flyhe {
-        void registerConvertToFlyHEPass() {
-            PassRegistration<ConvertToFlyHEPass>(
-                "convert-to-flyhe",
-                "Convert standard MLIR types to FlyHE types");
-        }
-    } // namespace flyhe
-} // namespace mlir
+    }  // namespace
+}  // namespace mlir::flyhe

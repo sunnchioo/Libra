@@ -1,4 +1,4 @@
-set(LLVM_TARGET_DEFINITIONS FlyHEDialect.td)
+set(LLVM_TARGET_DEFINITIONS FlyHEOps.td)
 
 mlir_tablegen(FlyHEDialect.h.inc --gen-dialect-decls -dialect=flyhe)
 mlir_tablegen(FlyHEDialect.cpp.inc --gen-dialect-defs -dialect=flyhe)
@@ -18,8 +18,7 @@ add_public_tablegen_target(FlyHEDialectIncGen)
 
 add_mlir_dialect_library(MLIRFlyHEDialect
   FlyHEDialect.cpp
-  # FlyHETypes.cpp
-  # FlyHEOps.cpp
+  FlyHEOps.cpp
 
   DEPENDS
   FlyHEDialectIncGen
