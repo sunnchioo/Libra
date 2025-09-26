@@ -1,41 +1,41 @@
-#ifndef FLYHEOPS_TD_
-#define FLYHEOPS_TD_
+#ifndef SIMDOPS_TD_
+#define SIMDOPS_TD_
 
 include "mlir/IR/OpBase.td"
 include "mlir/Interfaces/InferTypeOpInterface.td"
 include "mlir/Interfaces/SideEffectInterfaces.td"
 
-include "FlyHETypes.td"
-include "FlyHEDialect.td"
+include "SIMDTypes.td"
+include "SIMDDialect.td"
 
-class FlyHE_Op<string mnemonic, list<Trait> traits = []> :
-        Op<FlyHE_Dialect, mnemonic, traits> {
-    let summary = "FlyHE dialect operations base class";
+class SIMD_Op<string mnemonic, list<Trait> traits = []> :
+        Op<SIMD_Dialect, mnemonic, traits> {
+    let summary = "SIMD dialect operations base class";
 }
 
-def SIMDAddOp : FlyHE_Op<"simdadd", [Pure, SameOperandsAndResultType]> {
+def SIMDAddOp : SIMD_Op<"simdadd", [Pure, SameOperandsAndResultType]> {
     let summary = "Define an add operation.";
     let description = [{
         Define an add operation.
     }];
 
     let arguments = (ins 
-        FlyHE_SIMDCipherType:$input0,
-        FlyHE_SIMDCipherType:$input1
+        SIMD_SIMDCipherType:$input0,
+        SIMD_SIMDCipherType:$input1
     );
-    let results = (outs FlyHE_SIMDCipherType:$res);
+    let results = (outs SIMD_SIMDCipherType:$res);
 
     let assemblyFormat = [{
         $input0 `+` $input1 attr-dict `:` type($input0)
     }];
 }
 
-// def SIMDLoadOp : FlyHE_Op<"simd_load", [DeclareOpInterfaceMethods<MemoryEffectsOpInterface>]> {
+// def SIMDLoadOp : SIMD_Op<"simd_load", [DeclareOpInterfaceMethods<MemoryEffectsOpInterface>]> {
 //   let summary = "Load data from a SIMDCipherType buffer";
 //   let description = "Load a scalar value from a SIMD cipher buffer (replaces affine.load for SIMDCipherType)";
 
 //   let arguments = (ins
-//     FlyHE_SIMDCipherType:$buffer,       // 内存 buffer
+//     SIMD_SIMDCipherType:$buffer,       // 内存 buffer
 //     Variadic<Index>:$indices            // 可选索引（保留与 affine.load 兼容）
 //   );
 
@@ -50,10 +50,10 @@ def SIMDAddOp : FlyHE_Op<"simdadd", [Pure, SameOperandsAndResultType]> {
 //   }];
 // }
 
-def SIMDLoadOp : FlyHE_Op<"simd_load"> {
+def SIMDLoadOp : SIMD_Op<"simd_load"> {
   let summary = "Load a SIMD cipher value";
-  let arguments = (ins FlyHE_SIMDCipherType:$src);
-  let results   = (outs FlyHE_SIMDCipherType:$result);
+  let arguments = (ins SIMD_SIMDCipherType:$src);
+  let results   = (outs SIMD_SIMDCipherType:$result);
   let assemblyFormat = [{
     $src `:` type($src) attr-dict `:` type($result)
   }];
@@ -65,4 +65,4 @@ def SIMDLoadOp : FlyHE_Op<"simd_load"> {
 
 
 
-#endif // FLYHEOPS_TD_
+#endif // SIMDOPS_TD_

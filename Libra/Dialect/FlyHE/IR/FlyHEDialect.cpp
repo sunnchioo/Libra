@@ -16,7 +16,7 @@ using namespace mlir::flyhe;
 #include "FlyHEDialect.cpp.inc"
 
 void FlyHEDialect::initialize() {
-    llvm::outs() << "=== FlyHEDialect::initialize() running ===\n";
+    // llvm::outs() << "=== FlyHEDialect::initialize() running ===\n";
 
     addTypes<
 #define GET_TYPEDEF_LIST

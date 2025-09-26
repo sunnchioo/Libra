@@ -8,9 +8,13 @@ def ConvertToSIMDPass : Pass<"convert-to-simd", "::mlir::ModuleOp"> {
   let description = [{
     This Pass converts all memref<?xf64> types to FlyHE_SIMDCipher type and replaces the related memory operations.
   }];
+
+  // let cppNamespace = "::mlir::flyhe";
+
   let dependentDialects = [
     "::mlir::flyhe::FlyHEDialect",
-    "::mlir::memref::MemRefDialect"
+    "::mlir::memref::MemRefDialect",
+    "::mlir::arith::ArithDialect"
   ];
 }
 

@@ -5,13 +5,13 @@
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 #include "mlir/Dialect/Affine/IR/AffineOps.h"
 
-#include "FlyHEOps.h"
-#include "FlyHEPass.h"
+#include "SIMDOps.h"
+#include "SIMDPass.h"
 
-namespace mlir::flyhe {
+namespace mlir::simd {
 
 #define GEN_PASS_DEF_CONVERTTOSIMDPASS
-#include "FlyHEPass.h.inc"
+#include "SIMDPass.h.inc"
 
     namespace {
 
@@ -26,7 +26,7 @@ namespace mlir::flyhe {
                 if (!isa<SIMDCipherType>(lhsType) || !isa<SIMDCipherType>(rhsType))
                     return failure();
 
-                auto simdAdd = rewriter.create<flyhe::SIMDAddOp>(
+                auto simdAdd = rewriter.create<simd::SIMDAddOp>(
                     addOp.getLoc(),
                     lhsType,
                     addOp.getOperand(0),
@@ -53,8 +53,8 @@ namespace mlir::flyhe {
                 auto simdType = SIMDCipherType::get(rewriter.getContext());
 
                 // 创建 SIMDCipher 加载 op
-                // auto simdLoad = rewriter.create<flyhe::SIMDLoadOp>(loadOp.getLoc());
-                auto safeSimdLoad = rewriter.create<flyhe::SIMDLoadOp>(
+                // auto simdLoad = rewriter.create<simd::SIMDLoadOp>(loadOp.getLoc());
+                auto safeSimdLoad = rewriter.create<simd::SIMDLoadOp>(
                     loadOp.getLoc(),
                     simdType,
                     memref);
@@ -126,7 +126,7 @@ namespace mlir::flyhe {
             void runOnOperation() final {
                 Operation *op = getOperation();
 
-                // 1. affine.load -> flyhe.simd_load
+                // 1. affine.load -> simd.simd_load
                 {
                     RewritePatternSet loadPatterns(&getContext());
                     loadPatterns.add<ConvertAffineLoadPattern>(&getContext());
@@ -137,7 +137,7 @@ namespace mlir::flyhe {
                     }
                 }
 
-                // 2. arith.addf -> flyhe.smidadd
+                // 2. arith.addf -> simd.smidadd
                 {
                     RewritePatternSet addPatterns(&getContext());
                     addPatterns.add<ConvertAddfToSIMDAddPattern>(&getContext());
@@ -162,4 +162,4 @@ namespace mlir::flyhe {
         };
 
     }  // namespace
-}  // namespace mlir::flyhe
+}  // namespace mlir::simd

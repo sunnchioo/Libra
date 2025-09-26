@@ -1,0 +1,30 @@
+sum.mlir:5:10: error: 'arith.addf' op operand #0 must be floating-point-like, but got '!flyhe.simdcipher'
+    %2 = arith.addf %0, %1 : f64
+         ^
+sum.mlir:5:10: note: see current operation: %2 = "arith.addf"(%0, %1) <{fastmath = #arith.fastmath<none>}> : (!flyhe.simdcipher, !flyhe.simdcipher) -> f64
+// -----// IR Dump After ConvertToSIMDPass Failed (convert-to-simd) //----- //
+"builtin.module"() ({
+  "func.func"() <{function_type = (memref<?xf64>, memref<?xf64>) -> f64, sym_name = "_Z3sumRdS_"}> ({
+  ^bb0(%arg0: memref<?xf64>, %arg1: memref<?xf64>):
+    %0 = "flyhe.simd_load"(%arg0) : (memref<?xf64>) -> !flyhe.simdcipher
+    %1 = "flyhe.simd_load"(%arg1) : (memref<?xf64>) -> !flyhe.simdcipher
+    %2 = "arith.addf"(%0, %1) <{fastmath = #arith.fastmath<none>}> : (!flyhe.simdcipher, !flyhe.simdcipher) -> f64
+    "func.return"(%2) : (f64) -> ()
+  }) {llvm.linkage = #llvm.linkage<external>} : () -> ()
+}) : () -> ()
+
+sum.mlir:3:10: error: 'flyhe.simd_load' op operand #0 must be memref of any type values, but got '!flyhe.simdcipher'
+    %0 = affine.load %arg0[0] : memref<?xf64>
+         ^
+sum.mlir:3:10: note: see current operation: %0 = "flyhe.simd_load"(%arg0) : (!flyhe.simdcipher) -> !flyhe.simdcipher
+// -----// IR Dump After ConvertToSIMDPass Failed (convert-to-simd) //----- //
+"builtin.module"() ({
+  "func.func"() <{function_type = (!flyhe.simdcipher, !flyhe.simdcipher) -> f64, sym_name = "_Z3sumRdS_"}> ({
+  ^bb0(%arg0: !flyhe.simdcipher, %arg1: !flyhe.simdcipher):
+    %0 = "flyhe.simd_load"(%arg0) : (!flyhe.simdcipher) -> !flyhe.simdcipher
+    %1 = "flyhe.simd_load"(%arg1) : (!flyhe.simdcipher) -> !flyhe.simdcipher
+    %2 = "arith.addf"(%0, %1) <{fastmath = #arith.fastmath<none>}> : (!flyhe.simdcipher, !flyhe.simdcipher) -> f64
+    "func.return"(%2) : (f64) -> ()
+  }) {llvm.linkage = #llvm.linkage<external>} : () -> ()
+}) : () -> ()
+

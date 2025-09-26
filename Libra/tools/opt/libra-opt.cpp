@@ -25,9 +25,6 @@ int main(int argc, char **argv) {
     mlir::registerAllPasses();
     mlir::DialectRegistry registry;
     registerAllDialects(registry);
-
-    llvm::outs() << "Registering FlyHEDialect...\n";
-
     registry.insert<mlir::flyhe::FlyHEDialect>();
     registerAllExtensions(registry);
     // mlir::flyhe::registerFlyHEDialect(registry);

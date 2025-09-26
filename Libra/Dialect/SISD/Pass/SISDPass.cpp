@@ -5,17 +5,17 @@
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 #include "mlir/Dialect/Affine/IR/AffineOps.h"
 
-#include "FlyHEOps.h"
-#include "FlyHEPass.h"
+#include "SISDOps.h"
+#include "SISDPass.h"
 
-namespace mlir::flyhe {
+namespace mlir::sisd {
 
-#define GEN_PASS_DEF_CONVERTTOSIMDPASS
-#include "FlyHEPass.h.inc"
+#define GEN_PASS_DEF_CONVERTTOSISDPASS
+#include "SISDPass.h.inc"
 
     namespace {
 
-        class ConvertAddfToSIMDAddPattern : public OpRewritePattern<arith::AddFOp> {
+        class ConvertAddfToSISDAddPattern : public OpRewritePattern<arith::AddFOp> {
         public:
             using OpRewritePattern::OpRewritePattern;
 
@@ -23,16 +23,16 @@ namespace mlir::flyhe {
                                           PatternRewriter &rewriter) const override {
                 auto lhsType = addOp.getOperand(0).getType();
                 auto rhsType = addOp.getOperand(1).getType();
-                if (!isa<SIMDCipherType>(lhsType) || !isa<SIMDCipherType>(rhsType))
+                if (!isa<SISDCipherType>(lhsType) || !isa<SISDCipherType>(rhsType))
                     return failure();
 
-                auto simdAdd = rewriter.create<flyhe::SIMDAddOp>(
+                auto sisdAdd = rewriter.create<sisd::SISDAddOp>(
                     addOp.getLoc(),
                     lhsType,
                     addOp.getOperand(0),
                     addOp.getOperand(1));
 
-                rewriter.replaceOp(addOp, simdAdd.getResult());
+                rewriter.replaceOp(addOp, sisdAdd.getResult());
                 return success();
             }
         };
@@ -50,13 +50,13 @@ namespace mlir::flyhe {
                 if (!memrefType)
                     return failure();
 
-                auto simdType = SIMDCipherType::get(rewriter.getContext());
+                auto sisdType = SISDCipherType::get(rewriter.getContext());
 
-                // 创建 SIMDCipher 加载 op
-                // auto simdLoad = rewriter.create<flyhe::SIMDLoadOp>(loadOp.getLoc());
-                auto safeSimdLoad = rewriter.create<flyhe::SIMDLoadOp>(
+                // 创建 SISDCipher 加载 op
+                // auto sisdLoad = rewriter.create<sisd::SISDLoadOp>(loadOp.getLoc());
+                auto safeSimdLoad = rewriter.create<sisd::SISDLoadOp>(
                     loadOp.getLoc(),
-                    simdType,
+                    sisdType,
                     memref);
 
                 rewriter.replaceOp(loadOp, safeSimdLoad.getResult());
@@ -64,7 +64,7 @@ namespace mlir::flyhe {
             }
         };
 
-        class ConvertMemRefToSIMDCipherPattern : public OpRewritePattern<func::FuncOp> {
+        class ConvertMemRefToSISDCipherPattern : public OpRewritePattern<func::FuncOp> {
         public:
             using OpRewritePattern<func::FuncOp>::OpRewritePattern;
 
@@ -75,7 +75,7 @@ namespace mlir::flyhe {
                 SmallVector<Type, 4> newArgTypes;
                 for (Type argType : funcOp.getArgumentTypes()) {
                     if (auto memrefType = dyn_cast<mlir::MemRefType>(argType)) {
-                        newArgTypes.push_back(SIMDCipherType::get(rewriter.getContext()));
+                        newArgTypes.push_back(SISDCipherType::get(rewriter.getContext()));
                         modified = true;
                     } else {
                         newArgTypes.push_back(argType);
@@ -85,7 +85,7 @@ namespace mlir::flyhe {
                 SmallVector<Type, 4> newResultTypes;
                 for (Type resultType : funcOp.getResultTypes()) {
                     if (dyn_cast<MemRefType>(resultType) || dyn_cast<FloatType>(resultType)) {
-                        newResultTypes.push_back(SIMDCipherType::get(rewriter.getContext()));
+                        newResultTypes.push_back(SISDCipherType::get(rewriter.getContext()));
                         modified = true;
                     } else {
                         newResultTypes.push_back(resultType);
@@ -105,12 +105,12 @@ namespace mlir::flyhe {
                     for (unsigned i = 0; i < op->getNumResults(); ++i) {
                         Type t = op->getResult(i).getType();
                         if (isa<MemRefType>(t))
-                            op->getResult(i).setType(SIMDCipherType::get(rewriter.getContext()));
+                            op->getResult(i).setType(SISDCipherType::get(rewriter.getContext()));
                     }
                     for (unsigned i = 0; i < op->getNumOperands(); ++i) {
                         Type t = op->getOperand(i).getType();
                         if (isa<MemRefType>(t))
-                            op->getOperand(i).setType(SIMDCipherType::get(rewriter.getContext()));
+                            op->getOperand(i).setType(SISDCipherType::get(rewriter.getContext()));
                     }
                 });
 
@@ -118,15 +118,15 @@ namespace mlir::flyhe {
             }
         };
 
-        class ConvertMemRefToSIMDCipher
-            : public impl::ConvertToSIMDPassBase<ConvertMemRefToSIMDCipher> {
+        class ConvertMemRefToSISDCipher
+            : public impl::ConvertToSISDPassBase<ConvertMemRefToSISDCipher> {
         public:
-            using impl::ConvertToSIMDPassBase<ConvertMemRefToSIMDCipher>::ConvertToSIMDPassBase;
+            using impl::ConvertToSISDPassBase<ConvertMemRefToSISDCipher>::ConvertToSISDPassBase;
 
             void runOnOperation() final {
                 Operation *op = getOperation();
 
-                // 1. affine.load -> flyhe.simd_load
+                // 1. affine.load -> sisd.sisd_load
                 {
                     RewritePatternSet loadPatterns(&getContext());
                     loadPatterns.add<ConvertAffineLoadPattern>(&getContext());
@@ -137,10 +137,10 @@ namespace mlir::flyhe {
                     }
                 }
 
-                // 2. arith.addf -> flyhe.smidadd
+                // 2. arith.addf -> sisd.smidadd
                 {
                     RewritePatternSet addPatterns(&getContext());
-                    addPatterns.add<ConvertAddfToSIMDAddPattern>(&getContext());
+                    addPatterns.add<ConvertAddfToSISDAddPattern>(&getContext());
                     FrozenRewritePatternSet frozenAdd(std::move(addPatterns));
                     if (failed(applyPatternsGreedily(op, frozenAdd))) {
                         signalPassFailure();
@@ -148,10 +148,10 @@ namespace mlir::flyhe {
                     }
                 }
 
-                // 3. memref -> SIMDCipherType
+                // 3. memref -> SISDCipherType
                 {
                     RewritePatternSet funcPatterns(&getContext());
-                    funcPatterns.add<ConvertMemRefToSIMDCipherPattern>(&getContext());
+                    funcPatterns.add<ConvertMemRefToSISDCipherPattern>(&getContext());
                     FrozenRewritePatternSet frozenFunc(std::move(funcPatterns));
                     if (failed(applyPatternsGreedily(op, frozenFunc))) {
                         signalPassFailure();
@@ -162,4 +162,4 @@ namespace mlir::flyhe {
         };
 
     }  // namespace
-}  // namespace mlir::flyhe
+}  // namespace mlir::sisd
