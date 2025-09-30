@@ -30,37 +30,46 @@ def SIMDAddOp : FlyHE_Op<"simdadd", [Pure, SameOperandsAndResultType]> {
     }];
 }
 
-// def SIMDLoadOp : FlyHE_Op<"simd_load", [DeclareOpInterfaceMethods<MemoryEffectsOpInterface>]> {
-//   let summary = "Load data from a SIMDCipherType buffer";
-//   let description = "Load a scalar value from a SIMD cipher buffer (replaces affine.load for SIMDCipherType)";
+def SIMDMultOp : FlyHE_Op<"simdmult", [Pure, SameOperandsAndResultType]> {
+  let summary = "Define a multiply operation.";
+  let description = [{
+    Define a multiply operation between two SIMD cipher values.
+  }];
 
-//   let arguments = (ins
-//     FlyHE_SIMDCipherType:$buffer,       // 内存 buffer
-//     Variadic<Index>:$indices            // 可选索引（保留与 affine.load 兼容）
-//   );
+  let arguments = (ins 
+    FlyHE_SIMDCipherType:$input0,
+    FlyHE_SIMDCipherType:$input1
+  );
+  let results = (outs FlyHE_SIMDCipherType:$result);
 
-//   let results = (outs F64:$result);     // 输出一个 F64
-
-//   let assemblyFormat = "$buffer `[` $indices `]` attr-dict `:` type($buffer)";
-
-//   let extraClassDefinition = [{
-//     void getEffects(
-//       mlir::SmallVectorImpl<mlir::SideEffects::EffectInstance<
-//         mlir::MemoryEffects::Effect>> &effects);
-//   }];
-// }
+  let assemblyFormat = [{
+    $input0 `*` $input1 attr-dict `:` type($input0)
+  }];
+}
 
 def SIMDLoadOp : FlyHE_Op<"simd_load"> {
   let summary = "Load a SIMD cipher value";
-  let arguments = (ins FlyHE_SIMDCipherType:$src);
+  let arguments = (ins AnyType:$src);
   let results   = (outs FlyHE_SIMDCipherType:$result);
   let assemblyFormat = [{
     $src `:` type($src) attr-dict `:` type($result)
   }];
+}
 
-  // let extraClassDefinition = [{
-  //   bool isSIMDLoad() { return true; }
-  // }];
+def SIMDStoreOp : FlyHE_Op<"simd_store"> {
+  let summary = "Store a SIMD cipher value into a SIMD slot (or memref placeholder)";
+  let description = [{
+    Stores a value of type `!flyhe.simd_cipher` into a destination which may be
+    a memref (before type conversion) or a !flyhe.simd_cipher (after).
+  }];
+
+  let arguments = (ins
+    FlyHE_SIMDCipherType:$value,
+    AnyType:$dest
+  );
+
+  // ensure the parser can infer the type of $dest
+  let assemblyFormat = "$value `,` $dest `:` type($dest) attr-dict";
 }
 
 

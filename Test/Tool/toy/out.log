@@ -1,0 +1,43 @@
+// -----// IR Dump After ConvertToSIMDPass (convert-to-simd) //----- //
+module {
+  llvm.mlir.global internal constant @str0("sum: %f\0A\00") {addr_space = 0 : i32}
+  llvm.func @printf(!llvm.ptr, ...) -> i32
+  func.func @_Z3sumRdS_S_(%arg0: memref<?xf64>, %arg1: memref<?xf64>, %arg2: memref<?xf64>) {
+    %0 = flyhe.simd_load %arg0 : memref<?xf64> : !flyhe.simdcipher
+    %1 = flyhe.simd_load %arg1 : memref<?xf64> : !flyhe.simdcipher
+    %2 = flyhe.simdadd %0 + %1 : !flyhe.simdcipher
+    flyhe.simd_store %2, %arg2 : memref<?xf64>
+    return
+  }
+  func.func @_Z4multRdS_S_(%arg0: memref<?xf64>, %arg1: memref<?xf64>, %arg2: memref<?xf64>) {
+    %0 = flyhe.simd_load %arg0 : memref<?xf64> : !flyhe.simdcipher
+    %1 = flyhe.simd_load %arg1 : memref<?xf64> : !flyhe.simdcipher
+    %2 = flyhe.simdmult %0 * %1 : !flyhe.simdcipher
+    flyhe.simd_store %2, %arg2 : memref<?xf64>
+    return
+  }
+  func.func @main() -> i32 {
+    %c0_i32 = arith.constant 0 : i32
+    %cst = arith.constant 0.000000e+00 : f64
+    %cst_0 = arith.constant 2.000000e+00 : f64
+    %cst_1 = arith.constant 1.000000e+00 : f64
+    %alloca = memref.alloca() : memref<1xf64>
+    %cast = memref.cast %alloca : memref<1xf64> to memref<?xf64>
+    %alloca_2 = memref.alloca() : memref<1xf64>
+    %cast_3 = memref.cast %alloca_2 : memref<1xf64> to memref<?xf64>
+    %alloca_4 = memref.alloca() : memref<1xf64>
+    %cast_5 = memref.cast %alloca_4 : memref<1xf64> to memref<?xf64>
+    affine.store %cst_1, %alloca_4[0] : memref<1xf64>
+    affine.store %cst_0, %alloca_2[0] : memref<1xf64>
+    affine.store %cst, %alloca[0] : memref<1xf64>
+    call @_Z3sumRdS_S_(%cast_5, %cast_3, %cast) : (memref<?xf64>, memref<?xf64>, memref<?xf64>) -> ()
+    call @_Z4multRdS_S_(%cast, %cast, %cast) : (memref<?xf64>, memref<?xf64>, memref<?xf64>) -> ()
+    %0 = llvm.mlir.addressof @str0 : !llvm.ptr
+    %1 = llvm.getelementptr %0[0, 0] : (!llvm.ptr) -> !llvm.ptr, !llvm.array<9 x i8>
+    %2 = affine.load %alloca[0] : memref<1xf64>
+    %3 = llvm.call @printf(%1, %2) vararg(!llvm.func<i32 (ptr, ...)>) : (!llvm.ptr, f64) -> i32
+    return %c0_i32 : i32
+  }
+}
+
+

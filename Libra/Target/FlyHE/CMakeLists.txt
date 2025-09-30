@@ -1,12 +1,14 @@
+include_directories(${PROJECT_SOURCE_DIR}/Libra/Dialect/FlyHE/IR)
+include_directories(${PROJECT_BINARY_DIR}/Libra/Dialect/FlyHE/IR)
+
 add_mlir_library(FLYHETranslateLib
   FlyHETranslate.cpp
-
-  # ADDITIONAL_HEADER_DIRS
-  # ${PROJECT_SOURCE_DIR}/Tool/llvm-project/mlir/Tools/mlir-translate
 
   LINK_LIBS PUBLIC
   MLIRIR
   MLIRParser
   MLIRTransforms
   MLIRFuncDialect
+
+  MLIRFlyHEDialect
 )

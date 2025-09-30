@@ -19,7 +19,7 @@ namespace mlir {
 
             /// Emitter for translating MLIR with flyhe dialect ops into CUDA CKKS C++ code.
 
-            void registerflyhecudaemitterTranslation();
+            void registerFlyHECUDATranslation();
 
             class flyhecudaemitter {
             public:

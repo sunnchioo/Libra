@@ -7,6 +7,9 @@ namespace mlir {
     namespace libra {
         namespace flyhe_cuda {
 
+            constexpr const char *kAddCall = "ckks_evaluator.evaluator.add";
+            constexpr const char *kMultCall = "ckks_evaluator.evaluator.multiply";
+
             constexpr std::string_view kCudaPrelude = R"cpp(
                 /***** out begin *****/
 #include <vector>

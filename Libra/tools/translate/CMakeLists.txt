@@ -20,6 +20,8 @@ set(LIBS
         MLIRSideEffectInterfaces
         MLIRTargetLLVMIRExport
         MLIRTransforms
+
+        FLYHETranslateLib
 )
 add_llvm_executable(libra-translate
         libra-translate.cpp)
