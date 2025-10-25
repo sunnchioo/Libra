@@ -5,11 +5,53 @@
 #include "phantom.h"
 #include "utils.cuh"
 
+#include <algorithm>
+#include <functional>
+#include <random>
+#include <vector>
+
+#include "conversion.cuh"
+#include "tlwevaluator.cuh"
+#include "trlwevaluator.cuh"
+
 using namespace std;
 using namespace phantom;
 using namespace phantom::arith;
 using namespace phantom::util;
 using namespace rlwe;
+
+using namespace rlwe;
+using namespace cuTFHEpp;
+using namespace cuTFHEpp::util;
+
+template <typename T, typename Tp>
+T sign(T m, Tp p) {
+    if (m > (p >> 1)) {
+        return 0;
+    } else {
+        return 1;
+    }
+}
+
+template <typename LvlXY, typename LvlYZ,
+          typename LvlX = LvlXY::domainP, typename LvlY = LvlXY::targetP, typename LvlZ = LvlYZ::targetP>
+void SignBoostrapping(const Pointer<Context> &context, Pointer<cuTLWE<LvlX>> &res, Pointer<cuTLWE<LvlX>> &data, const size_t num_test) {
+    static_assert(std::is_same<LvlY, typename LvlYZ::domainP>::value, "Invalid LvlY");
+
+    using P = std::conditional_t<isLvlCover<LvlX, LvlZ>(), LvlX, LvlZ>;
+
+    Pointer<ProgBootstrappingData<LvlYZ>> pbs_data(num_test);
+
+    TFHEpp::TLWE<LvlX> *d_tlwe = data->template get<LvlX>();
+    TFHEpp::TLWE<LvlZ> *d_res = res->template get<LvlZ>();
+
+    auto lut = GenDLUTP<LvlX>(sign<double, typename LvlX::T>, LvlX::plain_modulus);
+
+    typename LvlZ::T *d_lut;
+    CUDA_CHECK_RETURN(cudaMalloc(&d_lut, lut.size() * sizeof(typename LvlZ::T)));
+    CUDA_CHECK_RETURN(cudaMemcpy(d_lut, lut.data(), lut.size() * sizeof(typename LvlZ::T), cudaMemcpyHostToDevice));
+    ProgBootstrapping<LvlXY, LvlYZ>(context.get(), pbs_data, d_lut, d_res, d_tlwe, num_test);
+}
 
 void random_real(vector<double> &vec, size_t size) {
     random_device rn;
@@ -26,6 +68,8 @@ void random_real(vector<double> &vec, size_t size) {
 
 int main() {
     /***** head begin *****/
+
+    /***** RLWE BEGIN *****/
     long logN = 16;
 
     long logn = logN - 1;
@@ -69,6 +113,36 @@ int main() {
     PhantomCKKSEncoder encoder(context);
 
     CKKSEvaluator ckks_evaluator(&context, &public_key, &secret_key, &encoder, &relin_keys, &galois_keys, scale);
+    /***** RLWE END *****/
+
+    /***** LWE BEGIN *****/
+    std::cout << "Setting LWE..." << endl;
+    using lwe_enc_lvl = Lvl1L;
+    // double lwe_scale = lwe_enc_lvl::Δ;
+    double lwe_scale = std::pow(2.0, 46);
+
+    TFHESecretKey lwe_sk;
+    TFHEEvalKey lwe_ek;
+    load_keys<BootstrappingKeyFFTLvl01, BootstrappingKeyFFTLvl02,
+              KeySwitchingKeyLvl10, KeySwitchingKeyLvl20, KeySwitchingKeyLvl21>(lwe_sk, lwe_ek);
+    tlwevaluator<lwe_enc_lvl> tlwer(&lwe_sk, &lwe_ek, lwe_scale);
+
+    // Pointer<cuTLWE<lwe_enc_lvl>> lwes(s, 1);  // 256
+
+    std::cout << "Setting conver..." << endl;
+    conver::GPUDecomposedLWEKSwitchKey extractKey;
+
+    auto &modulus = ckks_evaluator.ckks->context->key_context_data().parms().coeff_modulus();
+    std::vector<phantom::arith::Modulus> lwe_modulus{modulus[0], modulus[1]};  // only use first
+    conver::LWEParams parms(scheme_type::ckks);
+    parms.set_poly_modulus_degree(TFHEpp::lvl1param::n);
+    parms.set_coeff_modulus(lwe_modulus);
+    auto lwe_context = make_unique<conver::LWEContext>(parms);
+
+    auto &rlwe_sk = ckks_evaluator.secret_key();
+    std::cout << "Gen Extract Key" << std::endl;
+    GenExtractKey(ckks_evaluator, lwe_context.get(), extractKey, lwe_sk, rlwe_sk);
+    /***** LWE END *****/
 
     size_t slot_count = encoder.slot_count();
 
@@ -103,10 +177,21 @@ int main() {
     /***** head end *****/
     ckks_evaluator.evaluator.add(SIMDCipher0, SIMDCipher1, SIMDCipher2);
     ckks_evaluator.evaluator.cmlut(SIMDCipher2, SIMDCipher2, SIMDCipher2);
+    std::vector<size_t> extract_indices = {0};
+    int lwes_len = extract_indices.size();
+    const size_t logN = TFHEpp::lvlRparam::nbits;
+    for (size_t i = 0; i < extract_indices.size(); ++i) {
+        extract_indices[i] = phantom::arith::reverse_bits(extract_indices[i], logN - 1);
+    }
+    Pointer<cuTLWE<lwe_enc_lvl>> lwes(s, 1);
+    conver::extract<lwe_enc_lvl>(ckks_evaluator, lwe_context.get(), SIMDCipher2, lwes, extract_indices, extractKey);
+    SignBoostrapping<Lvl10, Lvl01>(context, lwes, lwes, lwes_len);
+
     // TODO: unhandled op: flyhe.simd_store
 
     /***** tail start *****/
+    tlwe_evaluator.print_culwe_ct_value_double_err(lwes, lwes_len, "result", sparse);
     ckks_evaluator.print_decrypted_ct(rtn, 10);
-    return 0;
+    ? return 0;
     /***** tail end *****/
 }

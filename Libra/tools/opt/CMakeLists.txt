@@ -13,8 +13,8 @@ set(LIBS
   # registered directly in libra-opt.cpp.
   # MLIRToLLVMIRTranslationRegistration
 
-  MLIRFlyHEDialect
-  FlyHEPasses
+  MLIRSCFHEDialect
+  SCFHEPasses
 )
 
 # add_mlir_tool(libra-opt  
@@ -25,16 +25,16 @@ set(LIBS
 # )
 add_llvm_executable(libra-opt 
   libra-opt.cpp
-  # ../../Dialect/FlyHE/IR/FlyHEDialect.cpp
-  # ../../Dialect/FlyHE/IR/FlyHEOps.cpp
+  # ../../Dialect/SCFHE/IR/SCFHEDialect.cpp
+  # ../../Dialect/SCFHE/IR/SCFHEOps.cpp
 )
 
 target_include_directories(libra-opt
   PRIVATE
-  ${CMAKE_CURRENT_SOURCE_DIR}/../../Dialect/FlyHE/IR
-  ${CMAKE_CURRENT_SOURCE_DIR}/../../Dialect/FlyHE/Pass
-  ${CMAKE_CURRENT_BINARY_DIR}/../../Dialect/FlyHE/IR
-  ${CMAKE_CURRENT_BINARY_DIR}/../../Dialect/FlyHE/Pass
+  ${CMAKE_CURRENT_SOURCE_DIR}/../../Dialect/SCFHE/IR
+  ${CMAKE_CURRENT_SOURCE_DIR}/../../Dialect/SCFHE/Pass
+  ${CMAKE_CURRENT_BINARY_DIR}/../../Dialect/SCFHE/IR
+  ${CMAKE_CURRENT_BINARY_DIR}/../../Dialect/SCFHE/Pass
 )
 
 llvm_update_compile_flags(libra-opt)

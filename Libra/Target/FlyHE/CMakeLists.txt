@@ -10,5 +10,5 @@ add_mlir_library(FLYHETranslateLib
   MLIRTransforms
   MLIRFuncDialect
 
-  MLIRFlyHEDialect
+  MLIRSCFHEDialect
 )

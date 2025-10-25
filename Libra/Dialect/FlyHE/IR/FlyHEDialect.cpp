@@ -6,7 +6,7 @@
 #include "FlyHEDialect.h"
 
 using namespace mlir;
-using namespace mlir::flyhe;
+using namespace mlir::libra::flyhe;
 
 #define GET_TYPEDEF_CLASSES
 #include "FlyHETypes.cpp.inc"

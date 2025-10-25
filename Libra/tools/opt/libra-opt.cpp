@@ -1,6 +1,6 @@
 
-#include "FlyHEDialect.h"
-#include "FlyHEPass.h"
+#include "SCFHEDialect.h"
+#include "SCFHEPass.h"
 
 #include "mlir-c/Debug.h"
 #include "mlir/Config/mlir-config.h"
@@ -22,15 +22,15 @@
 #include "llvm/Support/ToolOutputFile.h"
 #include "llvm/Support/raw_ostream.h"
 
-int main(int argc, char **argv) {
+int main(int argc, char** argv) {
     mlir::registerAllPasses();
     mlir::DialectRegistry registry;
     registerAllDialects(registry);
-    registry.insert<mlir::flyhe::FlyHEDialect>();
+    registry.insert<mlir::libra::scfhe::SCFHEDialect>();
+    // registry.insert<mlir::polygeist::PolygeistDialect>();
     registerAllExtensions(registry);
-    // mlir::flyhe::registerFlyHEDialect(registry);
-    mlir::flyhe::registerFlyHEOptPasses();
+    mlir::libra::scfhe::registerSCFHEOptPasses();
     // mlirEnableGlobalDebug(true);
     return mlir::asMainReturnCode(
-        mlir::MlirOptMain(argc, argv, "flyhe modular optimizer driver\n", registry));
+        mlir::MlirOptMain(argc, argv, "libra::scfhe modular optimizer driver\n", registry));
 }

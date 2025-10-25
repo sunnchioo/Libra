@@ -1,10 +1,17 @@
-#ifndef DIALECT_SCFHE_H
-#define DIALECT_SCFHE_H
+#ifndef IR_SCFHEDialect_H_
+#define IR_SCFHEDialect_H_
 
-#include "mlir/IR/Dialect.h"
-#include "mlir/IR/MLIRContext.h"
-#include "mlir/Dialect/Affine/IR/AffineOps.h"
+#include "mlir/IR/Builders.h"               // from @llvm-project
+#include "mlir/IR/BuiltinTypes.h"           // from @llvm-project
+#include "mlir/IR/Dialect.h"                // from @llvm-project
+#include "mlir/IR/DialectImplementation.h"  // from @llvm-project
+#include "mlir/IR/OpDefinition.h"           // from @llvm-project
+#include "mlir/IR/PatternMatch.h"           // from @llvm-project
+#include "mlir/IR/Types.h"                  // from @llvm-project
 
 #include "SCFHEDialect.h.inc"
 
-#endif  // DIALECT_SCFHE_H
+#include "SCFHETypes.h"
+#include "SCFHEOps.h"
+
+#endif  // IR_SCFHEDialect_H_

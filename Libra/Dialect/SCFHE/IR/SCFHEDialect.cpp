@@ -1,24 +1,30 @@
+#include "mlir/IR/Builders.h"
+#include "mlir/IR/DialectImplementation.h"
+#include "llvm/ADT/TypeSwitch.h"
+
+#include "SCFHETypes.h"
 #include "SCFHEDialect.h"
 
-#include "llvm/Support/raw_ostream.h"
-#define FIX
+using namespace mlir;
+using namespace mlir::libra::scfhe;
+
+#define GET_TYPEDEF_CLASSES
+#include "SCFHETypes.cpp.inc"
+#define GET_OP_CLASSES
+#include "SCFHEOps.cpp.inc"
+
 #include "SCFHEDialect.cpp.inc"
-#undef FIX
 
-namespace mlir::scfhe {
-    // 实现方言的初始化方法
-    void SCFHEDialect::initialize() {
-        llvm::outs() << "initializing " << getDialectNamespace() << "\n";
-    }
+void SCFHEDialect::initialize() {
+    // llvm::outs() << "=== SCFHEDialect::initialize() running ===\n";
 
-    // 实现方言的析构函数
-    SCFHEDialect::~SCFHEDialect() {
-        llvm::outs() << "destroying " << getDialectNamespace() << "\n";
-    }
+    addTypes<
+#define GET_TYPEDEF_LIST
+#include "SCFHETypes.cpp.inc"
+        >();
 
-    // 实现在extraClassDeclaration 声明当中生命的方法。
-    void SCFHEDialect::sayHello() {
-        llvm::outs() << "Hello in " << getDialectNamespace() << "\n";
-    }
-
-}  // namespace mlir::scfhe
+    addOperations<
+#define GET_OP_LIST
+#include "SCFHEOps.cpp.inc"
+        >();
+}

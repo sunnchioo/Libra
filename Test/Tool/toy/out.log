@@ -1,43 +1,63 @@
-// -----// IR Dump After ConvertToSIMDPass (convert-to-simd) //----- //
-module {
-  llvm.mlir.global internal constant @str0("sum: %f\0A\00") {addr_space = 0 : i32}
-  llvm.func @printf(!llvm.ptr, ...) -> i32
-  func.func @_Z3sumRdS_S_(%arg0: memref<?xf64>, %arg1: memref<?xf64>, %arg2: memref<?xf64>) {
-    %0 = flyhe.simd_load %arg0 : memref<?xf64> : !flyhe.simdcipher
-    %1 = flyhe.simd_load %arg1 : memref<?xf64> : !flyhe.simdcipher
-    %2 = flyhe.simdadd %0 + %1 : !flyhe.simdcipher
-    flyhe.simd_store %2, %arg2 : memref<?xf64>
-    return
-  }
-  func.func @_Z4multRdS_S_(%arg0: memref<?xf64>, %arg1: memref<?xf64>, %arg2: memref<?xf64>) {
-    %0 = flyhe.simd_load %arg0 : memref<?xf64> : !flyhe.simdcipher
-    %1 = flyhe.simd_load %arg1 : memref<?xf64> : !flyhe.simdcipher
-    %2 = flyhe.simdmult %0 * %1 : !flyhe.simdcipher
-    flyhe.simd_store %2, %arg2 : memref<?xf64>
-    return
-  }
-  func.func @main() -> i32 {
-    %c0_i32 = arith.constant 0 : i32
-    %cst = arith.constant 0.000000e+00 : f64
-    %cst_0 = arith.constant 2.000000e+00 : f64
-    %cst_1 = arith.constant 1.000000e+00 : f64
-    %alloca = memref.alloca() : memref<1xf64>
-    %cast = memref.cast %alloca : memref<1xf64> to memref<?xf64>
-    %alloca_2 = memref.alloca() : memref<1xf64>
-    %cast_3 = memref.cast %alloca_2 : memref<1xf64> to memref<?xf64>
-    %alloca_4 = memref.alloca() : memref<1xf64>
-    %cast_5 = memref.cast %alloca_4 : memref<1xf64> to memref<?xf64>
-    affine.store %cst_1, %alloca_4[0] : memref<1xf64>
-    affine.store %cst_0, %alloca_2[0] : memref<1xf64>
-    affine.store %cst, %alloca[0] : memref<1xf64>
-    call @_Z3sumRdS_S_(%cast_5, %cast_3, %cast) : (memref<?xf64>, memref<?xf64>, memref<?xf64>) -> ()
-    call @_Z4multRdS_S_(%cast, %cast, %cast) : (memref<?xf64>, memref<?xf64>, memref<?xf64>) -> ()
-    %0 = llvm.mlir.addressof @str0 : !llvm.ptr
-    %1 = llvm.getelementptr %0[0, 0] : (!llvm.ptr) -> !llvm.ptr, !llvm.array<9 x i8>
-    %2 = affine.load %alloca[0] : memref<1xf64>
-    %3 = llvm.call @printf(%1, %2) vararg(!llvm.func<i32 (ptr, ...)>) : (!llvm.ptr, f64) -> i32
-    return %c0_i32 : i32
-  }
-}
+sum-main.O3.mlir:28:7: error: 'affine.store' op value to store must have the same type as memref element type
+      affine.store %9, %alloca[%arg0] : memref<8xf64>
+      ^
+sum-main.O3.mlir:28:7: note: see current operation: "affine.store"(%21, %4, %arg1) <{map = affine_map<(d0) -> (d0)>}> : (!scfhe.scfhecipher, memref<8xf64>, index) -> ()
+// -----// IR Dump After ConvertToSCFHEPass Failed (convert-to-scfhe) //----- //
+#map = affine_map<() -> (0)>
+#map1 = affine_map<() -> (8)>
+#map2 = affine_map<(d0) -> (d0)>
+"builtin.module"() ({
+  "llvm.mlir.global"() <{addr_space = 0 : i32, constant, global_type = !llvm.array<18 x i8>, linkage = #llvm.linkage<internal>, sym_name = "str1", unnamed_addr = 0 : i64, value = "result c[%d]: %f\0A\00", visibility_ = 0 : i64}> ({
+  }) : () -> ()
+  "llvm.func"() <{CConv = #llvm.cconv<ccc>, function_type = !llvm.func<i32 (ptr, ...)>, linkage = #llvm.linkage<external>, sym_name = "printf", unnamed_addr = 0 : i64, visibility_ = 0 : i64}> ({
+  }) : () -> ()
+  "llvm.mlir.global"() <{addr_space = 0 : i32, constant, global_type = !llvm.array<8 x i8>, linkage = #llvm.linkage<internal>, sym_name = "str0", unnamed_addr = 0 : i64, value = "%lf %lf\00", visibility_ = 0 : i64}> ({
+  }) : () -> ()
+  "llvm.func"() <{CConv = #llvm.cconv<ccc>, function_type = !llvm.func<i32 (ptr, ...)>, linkage = #llvm.linkage<external>, sym_name = "__isoc99_scanf", unnamed_addr = 0 : i64, visibility_ = 0 : i64}> ({
+  }) : () -> ()
+  "func.func"() <{function_type = () -> i32, sym_name = "main"}> ({
+    %0 = "llvm.mlir.addressof"() <{global_name = @str1}> : () -> !llvm.ptr
+    %1 = "llvm.mlir.addressof"() <{global_name = @str0}> : () -> !llvm.ptr
+    %2 = "arith.constant"() <{value = 8 : index}> : () -> index
+    %3 = "arith.constant"() <{value = 0 : i32}> : () -> i32
+    %4 = "memref.alloca"() <{operandSegmentSizes = array<i32: 0, 0>}> : () -> memref<8xf64>
+    %5 = "memref.alloca"() <{operandSegmentSizes = array<i32: 0, 0>}> : () -> memref<8xf64>
+    %6 = "memref.alloca"() <{operandSegmentSizes = array<i32: 0, 0>}> : () -> memref<8xf64>
+    %7 = "llvm.getelementptr"(%1) <{elem_type = !llvm.array<8 x i8>, noWrapFlags = 0 : i32, rawConstantIndices = array<i32: 0, 0>}> : (!llvm.ptr) -> !llvm.ptr
+    %8 = "polygeist.memref2pointer"(%6) : (memref<8xf64>) -> !llvm.ptr
+    %9 = "polygeist.memref2pointer"(%5) : (memref<8xf64>) -> !llvm.ptr
+    "affine.for"() <{lowerBoundMap = #map, operandSegmentSizes = array<i32: 0, 0, 0>, step = 1 : index, upperBoundMap = #map1}> ({
+    ^bb0(%arg2: index):
+      %22 = "arith.muli"(%arg2, %2) <{overflowFlags = #arith.overflow<none>}> : (index, index) -> index
+      %23 = "arith.index_cast"(%22) : (index) -> i64
+      %24 = "llvm.getelementptr"(%8, %23) <{elem_type = i8, noWrapFlags = 0 : i32, rawConstantIndices = array<i32: -2147483648>}> : (!llvm.ptr, i64) -> !llvm.ptr
+      %25 = "llvm.getelementptr"(%9, %23) <{elem_type = i8, noWrapFlags = 0 : i32, rawConstantIndices = array<i32: -2147483648>}> : (!llvm.ptr, i64) -> !llvm.ptr
+      %26 = "llvm.call"(%7, %24, %25) <{CConv = #llvm.cconv<ccc>, TailCallKind = #llvm.tailcallkind<none>, callee = @__isoc99_scanf, fastmathFlags = #llvm.fastmath<none>, op_bundle_sizes = array<i32>, operandSegmentSizes = array<i32: 3, 0>, var_callee_type = !llvm.func<i32 (ptr, ...)>}> : (!llvm.ptr, !llvm.ptr, !llvm.ptr) -> i32
+      "affine.yield"() : () -> ()
+    }) : () -> ()
+    "affine.for"() <{lowerBoundMap = #map, operandSegmentSizes = array<i32: 0, 0, 0>, step = 1 : index, upperBoundMap = #map1}> ({
+    ^bb0(%arg1: index):
+      %16 = "affine.load"(%6, %arg1) <{map = #map2}> : (memref<8xf64>, index) -> f64
+      %17 = "scfhe.scfhe_encrypt"(%16) : (f64) -> !scfhe.scfhecipher
+      %18 = "affine.load"(%5, %arg1) <{map = #map2}> : (memref<8xf64>, index) -> f64
+      %19 = "scfhe.scfhe_encrypt"(%18) : (f64) -> !scfhe.scfhecipher
+      %20 = "scfhe.scfhe_add"(%17, %19) : (!scfhe.scfhecipher, !scfhe.scfhecipher) -> !scfhe.scfhecipher
+      %21 = "scfhe.scfhe_mult"(%20, %20) : (!scfhe.scfhecipher, !scfhe.scfhecipher) -> !scfhe.scfhecipher
+      "affine.store"(%21, %4, %arg1) <{map = #map2}> : (!scfhe.scfhecipher, memref<8xf64>, index) -> ()
+      "affine.yield"() : () -> ()
+    }) : () -> ()
+    %10 = "llvm.getelementptr"(%0) <{elem_type = !llvm.array<18 x i8>, noWrapFlags = 0 : i32, rawConstantIndices = array<i32: 0, 0>}> : (!llvm.ptr) -> !llvm.ptr
+    "affine.for"() <{lowerBoundMap = #map, operandSegmentSizes = array<i32: 0, 0, 0>, step = 1 : index, upperBoundMap = #map1}> ({
+    ^bb0(%arg0: index):
+      %11 = "arith.index_cast"(%arg0) : (index) -> i32
+      %12 = "affine.load"(%4, %arg0) <{map = #map2}> : (memref<8xf64>, index) -> f64
+      %13 = "scfhe.scfhe_encrypt"(%12) : (f64) -> !scfhe.scfhecipher
+      %14 = "scfhe.scfhe_decrypt"(%13) : (!scfhe.scfhecipher) -> f64
+      %15 = "llvm.call"(%10, %11, %14) <{CConv = #llvm.cconv<ccc>, TailCallKind = #llvm.tailcallkind<none>, callee = @printf, fastmathFlags = #llvm.fastmath<none>, op_bundle_sizes = array<i32>, operandSegmentSizes = array<i32: 3, 0>, var_callee_type = !llvm.func<i32 (ptr, ...)>}> : (!llvm.ptr, i32, f64) -> i32
+      "affine.yield"() : () -> ()
+    }) : () -> ()
+    "func.return"(%3) : (i32) -> ()
+  }) : () -> ()
+}) : () -> ()
 
 
