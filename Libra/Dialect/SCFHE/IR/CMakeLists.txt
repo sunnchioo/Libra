@@ -19,6 +19,7 @@ add_public_tablegen_target(SCFHEDialectIncGen)
 add_mlir_dialect_library(MLIRSCFHEDialect
   SCFHEDialect.cpp
   SCFHEOps.cpp
+  SCFHETypes.cpp
 
   DEPENDS
   SCFHEDialectIncGen

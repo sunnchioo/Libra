@@ -1,4 +1,3 @@
-// -----// IR Dump After ConvertToSCFHEPass (convert-to-scfhe) //----- //
 module {
   llvm.mlir.global internal constant @str1("min: %f\0A\00") {addr_space = 0 : i32}
   llvm.func @printf(!llvm.ptr, ...) -> i32
@@ -27,7 +26,7 @@ module {
     %6 = scfhe.encrypt %5 : vector<8xf64> -> !scfhe.scfhecipher<8 x i64>
     %7 = vector.transfer_read %alloca[%c0], %cst {in_bounds = [true]} : memref<8xf64>, vector<8xf64>
     %8 = scfhe.encrypt %7 : vector<8xf64> -> !scfhe.scfhecipher<8 x i64>
-    %9 = scfhe.sub %6 _ %8 : !scfhe.scfhecipher<8 x i64>
+    %9 = scfhe.add %6 + %8 : !scfhe.scfhecipher<8 x i64>
     %10 = scfhe.mult %9 * %9 : !scfhe.scfhecipher<8 x i64>
     %11 = scfhe.alloca : !scfhe.scfhecipher<8 x i64>
     scfhe.store %10, %11 : !scfhe.scfhecipher<8 x i64>, !scfhe.scfhecipher<8 x i64>
@@ -38,5 +37,4 @@ module {
     return %c0_i32 : i32
   }
 }
-
 

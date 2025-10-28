@@ -1,4 +1,3 @@
-// -----// IR Dump After ConvertToSCFHEPass (convert-to-scfhe) //----- //
 module {
   llvm.mlir.global internal constant @str1("min: %f\0A\00") {addr_space = 0 : i32}
   llvm.func @printf(!llvm.ptr, ...) -> i32
@@ -38,5 +37,4 @@ module {
     return %c0_i32 : i32
   }
 }
-
 
