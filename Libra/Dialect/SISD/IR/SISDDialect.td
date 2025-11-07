@@ -11,7 +11,7 @@ def SISD_Dialect : Dialect {
         SISD Dialect.
     }];
 
-    let cppNamespace = "::mlir::sisd";
+    let cppNamespace = "::mlir::libra::sisd";
 
     let useDefaultTypePrinterParser = 1;
 }

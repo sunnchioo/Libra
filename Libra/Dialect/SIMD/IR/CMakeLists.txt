@@ -11,17 +11,14 @@ mlir_tablegen(SIMDOps.cpp.inc --gen-op-defs -dialect=simd)
 
 add_public_tablegen_target(SIMDDialectIncGen)
 
-# add_dependencies(SIMDDialectIncGen
-#   SIMDTypesIncGen
-#   # SIMDOpsIncGen
-# )
-
 add_mlir_dialect_library(MLIRSIMDDialect
   SIMDDialect.cpp
   SIMDOps.cpp
+  SIMDTypes.cpp
 
   DEPENDS
   SIMDDialectIncGen
+  SCFHEDialectIncGen
 
   LINK_LIBS PUBLIC
   MLIRIR

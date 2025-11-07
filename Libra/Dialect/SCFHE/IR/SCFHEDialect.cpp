@@ -10,14 +10,13 @@ using namespace mlir::libra::scfhe;
 
 #define GET_TYPEDEF_CLASSES
 #include "SCFHETypes.cpp.inc"
+
 #define GET_OP_CLASSES
 #include "SCFHEOps.cpp.inc"
 
 #include "SCFHEDialect.cpp.inc"
 
 void SCFHEDialect::initialize() {
-    // llvm::outs() << "=== SCFHEDialect::initialize() running ===\n";
-
     addTypes<
 #define GET_TYPEDEF_LIST
 #include "SCFHETypes.cpp.inc"

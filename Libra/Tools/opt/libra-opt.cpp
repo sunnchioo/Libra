@@ -2,6 +2,14 @@
 #include "SCFHEDialect.h"
 #include "SCFHEPass.h"
 
+#include "SIMDDialect.h"
+#include "SIMDPass.h"
+
+#include "SISDDialect.h"
+#include "SISDPass.h"
+
+#include "ModeSelectPass.h"
+
 #include "mlir-c/Debug.h"
 #include "mlir/Config/mlir-config.h"
 #include "mlir/IR/AsmState.h"
@@ -27,10 +35,14 @@ int main(int argc, char** argv) {
     mlir::DialectRegistry registry;
     registerAllDialects(registry);
     registry.insert<mlir::libra::scfhe::SCFHEDialect>();
-    // registry.insert<mlir::polygeist::PolygeistDialect>();
+    registry.insert<mlir::libra::simd::SIMDDialect>();
+    registry.insert<mlir::libra::sisd::SISDDialect>();
     registerAllExtensions(registry);
     mlir::libra::scfhe::registerSCFHEOptPasses();
+    mlir::libra::simd::registerSIMDOptPasses();
+    mlir::libra::sisd::registerSISDOptPasses();
+    mlir::libra::mdsel::registerMDSELOptPasses();
     // mlirEnableGlobalDebug(true);
     return mlir::asMainReturnCode(
-        mlir::MlirOptMain(argc, argv, "libra::scfhe modular optimizer driver\n", registry));
+        mlir::MlirOptMain(argc, argv, "libra optimizer driver\n", registry));
 }

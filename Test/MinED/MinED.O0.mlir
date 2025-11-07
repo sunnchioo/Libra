@@ -22,11 +22,11 @@ module {
       %15 = llvm.getelementptr %3[%13] : (!llvm.ptr, i64) -> !llvm.ptr, i8
       %16 = llvm.call @__isoc99_scanf(%1, %14, %15) vararg(!llvm.func<i32 (ptr, ...)>) : (!llvm.ptr, !llvm.ptr, !llvm.ptr) -> i32
     }
-    %4 = vector.transfer_read %alloca_1[%c0], %cst {in_bounds = [true]} : memref<8xf64>, vector<8xf64>
-    %5 = vector.transfer_read %alloca_0[%c0], %cst {in_bounds = [true]} : memref<8xf64>, vector<8xf64>
+    %4 = vector.transfer_read %alloca_1[%c0], %cst : memref<8xf64>, vector<8xf64>
+    %5 = vector.transfer_read %alloca_0[%c0], %cst : memref<8xf64>, vector<8xf64>
     %6 = arith.subf %4, %5 : vector<8xf64>
     %7 = arith.mulf %6, %6 : vector<8xf64>
-    vector.transfer_write %7, %alloca[%c0] {in_bounds = [true]} : vector<8xf64>, memref<8xf64>
+    vector.transfer_write %7, %alloca[%c0] : vector<8xf64>, memref<8xf64>
     %8 = affine.for %arg0 = 0 to 8 iter_args(%arg1 = %cst) -> (f64) {
       %12 = affine.load %alloca[%arg0] : memref<8xf64>
       %13 = arith.cmpf ogt, %arg1, %12 : f64

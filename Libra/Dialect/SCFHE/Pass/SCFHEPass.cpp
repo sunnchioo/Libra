@@ -522,6 +522,90 @@ namespace mlir::libra::scfhe {
             }
         };
 
+        //===----------------------------------------------------------------------===//
+        // Fold Alloca + Store Pattern (from FoldSCFHEAllocaStorePass)
+        //===----------------------------------------------------------------------===//
+
+        class FoldAllocaStorePattern : public RewritePattern {
+        public:
+            explicit FoldAllocaStorePattern(MLIRContext* ctx)
+                : RewritePattern(MatchAnyOpTypeTag(), 1, ctx) {}
+
+            LogicalResult matchAndRewrite(Operation* op,
+                                          PatternRewriter& rewriter) const override {
+                // 只处理 scfhe 算术操作
+                if (!isa<scfhe::SCFHEMinOp, scfhe::SCFHEAddOp,
+                         scfhe::SCFHESubOp, scfhe::SCFHEMultOp>(op))
+                    return failure();
+
+                bool modified = false;
+                SmallVector<Value, 4> newOperands;
+                SmallVector<scfhe::SCFHEStoreOp, 4> storesToErase;
+                SmallVector<scfhe::SCFHEAllocaOp, 4> allocasToErase;
+
+                // 遍历操作数
+                for (Value operand : op->getOperands()) {
+                    // 检查操作数是否由 scfhe.alloca 定义
+                    auto allocaOp = operand.getDefiningOp<scfhe::SCFHEAllocaOp>();
+                    if (!allocaOp) {
+                        newOperands.push_back(operand);
+                        continue;
+                    }
+
+                    scfhe::SCFHEStoreOp storeOp = nullptr;
+
+                    // 检查 alloca 的用户
+                    for (Operation* user : allocaOp->getResult(0).getUsers()) {
+                        if (auto s = dyn_cast<scfhe::SCFHEStoreOp>(user)) {
+                            if (storeOp)
+                                return failure();  // 多个 store，不安全折叠
+                            storeOp = s;
+                        } else if (user != op) {
+                            // alloca 被除目标 op 以外的其它 op 使用 -> 不安全
+                            return failure();
+                        }
+                    }
+
+                    if (!storeOp)
+                        return failure();
+
+                    // 拿到 store 的存储值（第一个操作数通常是 value）
+                    Value storedVal = storeOp.getValue();
+                    newOperands.push_back(storedVal);
+                    modified = true;
+
+                    // 记录要删除的 store/alloca —— 注意分组，便于先删 store 再删 alloca
+                    storesToErase.push_back(storeOp);
+                    allocasToErase.push_back(allocaOp);
+                }
+
+                if (!modified)
+                    return failure();
+
+                // Build new op (同类型、同属性、但用 newOperands)
+                OperationState state(op->getLoc(), op->getName());
+                state.addOperands(newOperands);
+                state.addTypes(op->getResultTypes());
+                state.addAttributes(op->getAttrs());
+                Operation* newOp = rewriter.create(state);
+
+                // 用新 op 的结果替换旧 op
+                rewriter.replaceOp(op, newOp->getResults());
+
+                // 重要：先删除 store，再删除 alloca（防止 alloca 仍被 store 引用）
+                for (auto s : storesToErase) {
+                    if (s->use_empty())
+                        rewriter.eraseOp(s);
+                }
+                for (auto a : allocasToErase) {
+                    if (a->use_empty())
+                        rewriter.eraseOp(a);
+                }
+
+                return success();
+            }
+        };
+
         //===================== Pattern Matching End =====================//
 
         class ConvertToSCFHEIR
@@ -540,7 +624,8 @@ namespace mlir::libra::scfhe {
                     ConvertMulfToSCFHEMultPattern,
                     ReplaceAffineMinWithSCFHEMinPattern,
                     ReplaceVectorTransferWriteWithSCFHEStorePattern,
-                    InsertDecryptBeforePrintfPattern>(&getContext());
+                    InsertDecryptBeforePrintfPattern,
+                    FoldAllocaStorePattern>(&getContext());
 
                 (void)applyPatternsGreedily(module, std::move(patterns));
             }

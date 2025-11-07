@@ -12,7 +12,7 @@ add_mlir_dialect_library(SCFHEPasses
 
   LINK_LIBS PRIVATE
   MLIRSCFHEDialect
-  
+
   MLIRIR
   MLIRPass
   MLIRTransforms

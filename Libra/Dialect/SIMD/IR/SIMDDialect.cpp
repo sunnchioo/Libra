@@ -2,14 +2,15 @@
 #include "mlir/IR/DialectImplementation.h"
 #include "llvm/ADT/TypeSwitch.h"
 
-#include "SIMDTypes.h"
 #include "SIMDDialect.h"
+#include "SIMDTypes.h"
 
 using namespace mlir;
-using namespace mlir::simd;
+using namespace mlir::libra::simd;
 
 #define GET_TYPEDEF_CLASSES
 #include "SIMDTypes.cpp.inc"
+
 #define GET_OP_CLASSES
 #include "SIMDOps.cpp.inc"
 

@@ -17,11 +17,11 @@ module {
     %3 = "polygeist.memref2pointer"(%alloca_0) : (memref<8xf64>) -> !llvm.ptr
     %4 = "polygeist.memref2pointer"(%alloca) : (memref<8xf64>) -> !llvm.ptr
     affine.for %arg0 = 0 to 8 {
-      %16 = arith.muli %arg0, %c8 : index
-      %17 = arith.index_cast %16 : index to i64
-      %18 = llvm.getelementptr %3[%17] : (!llvm.ptr, i64) -> !llvm.ptr, i8
-      %19 = llvm.getelementptr %4[%17] : (!llvm.ptr, i64) -> !llvm.ptr, i8
-      %20 = llvm.call @__isoc99_scanf(%2, %18, %19) vararg(!llvm.func<i32 (ptr, ...)>) : (!llvm.ptr, !llvm.ptr, !llvm.ptr) -> i32
+      %15 = arith.muli %arg0, %c8 : index
+      %16 = arith.index_cast %15 : index to i64
+      %17 = llvm.getelementptr %3[%16] : (!llvm.ptr, i64) -> !llvm.ptr, i8
+      %18 = llvm.getelementptr %4[%16] : (!llvm.ptr, i64) -> !llvm.ptr, i8
+      %19 = llvm.call @__isoc99_scanf(%2, %17, %18) vararg(!llvm.func<i32 (ptr, ...)>) : (!llvm.ptr, !llvm.ptr, !llvm.ptr) -> i32
     }
     %5 = vector.transfer_read %alloca_0[%c0], %cst {in_bounds = [true]} : memref<8xf64>, vector<8xf64>
     %6 = scfhe.encrypt %5 : vector<8xf64> -> !scfhe.scfhecipher<8 x i64>
@@ -29,12 +29,158 @@ module {
     %8 = scfhe.encrypt %7 : vector<8xf64> -> !scfhe.scfhecipher<8 x i64>
     %9 = scfhe.sub %6 _ %8 : !scfhe.scfhecipher<8 x i64>
     %10 = scfhe.mult %9 * %9 : !scfhe.scfhecipher<8 x i64>
-    %11 = scfhe.alloca : !scfhe.scfhecipher<8 x i64>
-    scfhe.store %10, %11 : !scfhe.scfhecipher<8 x i64>, !scfhe.scfhecipher<8 x i64>
-    %12 = scfhe.min %11 : !scfhe.scfhecipher<8 x i64> -> !scfhe.scfhecipher<1 x i64>
-    %13 = llvm.getelementptr %0[0, 0] : (!llvm.ptr) -> !llvm.ptr, !llvm.array<9 x i8>
-    %14 = scfhe.decrypt %12 : !scfhe.scfhecipher<1 x i64> : f64
-    %15 = llvm.call @printf(%13, %14) vararg(!llvm.func<i32 (ptr, ...)>) : (!llvm.ptr, f64) -> i32
+    %11 = scfhe.min %10 : !scfhe.scfhecipher<8 x i64> -> !scfhe.scfhecipher<1 x i64>
+    %12 = llvm.getelementptr %0[0, 0] : (!llvm.ptr) -> !llvm.ptr, !llvm.array<9 x i8>
+    %13 = scfhe.decrypt %11 : !scfhe.scfhecipher<1 x i64> : f64
+    %14 = llvm.call @printf(%12, %13) vararg(!llvm.func<i32 (ptr, ...)>) : (!llvm.ptr, f64) -> i32
+    return %c0_i32 : i32
+  }
+}
+
+
+// -----// IR Dump After ConvertToSIMDPass (convert-to-simd) //----- //
+module {
+  llvm.mlir.global internal constant @str1("min: %f\0A\00") {addr_space = 0 : i32}
+  llvm.func @printf(!llvm.ptr, ...) -> i32
+  llvm.mlir.global internal constant @str0("%lf %lf\00") {addr_space = 0 : i32}
+  llvm.func @__isoc99_scanf(!llvm.ptr, ...) -> i32
+  func.func @main() -> i32 {
+    %0 = llvm.mlir.addressof @str1 : !llvm.ptr
+    %1 = llvm.mlir.addressof @str0 : !llvm.ptr
+    %c0 = arith.constant 0 : index
+    %c8 = arith.constant 8 : index
+    %c0_i32 = arith.constant 0 : i32
+    %cst = arith.constant 0.000000e+00 : f64
+    %alloca = memref.alloca() : memref<8xf64>
+    %alloca_0 = memref.alloca() : memref<8xf64>
+    %2 = llvm.getelementptr %1[0, 0] : (!llvm.ptr) -> !llvm.ptr, !llvm.array<8 x i8>
+    %3 = "polygeist.memref2pointer"(%alloca_0) : (memref<8xf64>) -> !llvm.ptr
+    %4 = "polygeist.memref2pointer"(%alloca) : (memref<8xf64>) -> !llvm.ptr
+    affine.for %arg0 = 0 to 8 {
+      %15 = arith.muli %arg0, %c8 : index
+      %16 = arith.index_cast %15 : index to i64
+      %17 = llvm.getelementptr %3[%16] : (!llvm.ptr, i64) -> !llvm.ptr, i8
+      %18 = llvm.getelementptr %4[%16] : (!llvm.ptr, i64) -> !llvm.ptr, i8
+      %19 = llvm.call @__isoc99_scanf(%2, %17, %18) vararg(!llvm.func<i32 (ptr, ...)>) : (!llvm.ptr, !llvm.ptr, !llvm.ptr) -> i32
+    }
+    %5 = vector.transfer_read %alloca_0[%c0], %cst {in_bounds = [true]} : memref<8xf64>, vector<8xf64>
+    %6 = simd.encrypt %5 : vector<8xf64> -> !simd.simdcipher<1 x 8 x i64>
+    %7 = vector.transfer_read %alloca[%c0], %cst {in_bounds = [true]} : memref<8xf64>, vector<8xf64>
+    %8 = simd.encrypt %7 : vector<8xf64> -> !simd.simdcipher<1 x 8 x i64>
+    %9 = simd.sub %6 _ %8 : !simd.simdcipher<1 x 8 x i64>
+    %10 = simd.mult %9 * %9 : !simd.simdcipher<1 x 8 x i64>, !simd.simdcipher<1 x 8 x i64> -> !simd.simdcipher<0 x 8 x i64>
+    %11 = simd.min %10 : !simd.simdcipher<0 x 8 x i64> -> !simd.simdcipher<0 x 1 x i64>
+    %12 = llvm.getelementptr %0[0, 0] : (!llvm.ptr) -> !llvm.ptr, !llvm.array<9 x i8>
+    %13 = simd.decrypt %11 : !simd.simdcipher<0 x 1 x i64> : f64
+    %14 = llvm.call @printf(%12, %13) vararg(!llvm.func<i32 (ptr, ...)>) : (!llvm.ptr, f64) -> i32
+    return %c0_i32 : i32
+  }
+}
+
+
+[DP-FWD] Evaluating node: simd.encrypt
+  Mode SIMD -> inCost=0.000000e+00, opCost=0.000000e+00, total=0.000000e+00
+  Mode SISD not feasible for simd.encrypt
+  => Final for simd.encrypt: SIMD=0.000000e+00, SISD=INF
+
+[DP-FWD] Evaluating node: simd.encrypt
+  Mode SIMD -> inCost=0.000000e+00, opCost=0.000000e+00, total=0.000000e+00
+  Mode SISD not feasible for simd.encrypt
+  => Final for simd.encrypt: SIMD=0.000000e+00, SISD=INF
+
+[DP-FWD] Evaluating node: simd.sub
+[COSTCAST] from=SISD to=SIMD key=sisd.cast_to_simd lvl=1 cost=2.500000e+00
+    Edge from simd.encrypt to simd.sub [pathSIMD=0.000000e+00 pathSISD=INF best=0.000000e+00]
+[COSTCAST] from=SISD to=SIMD key=sisd.cast_to_simd lvl=1 cost=2.500000e+00
+    Edge from simd.encrypt to simd.sub [pathSIMD=0.000000e+00 pathSISD=INF best=0.000000e+00]
+[COSTOP] op=simd.sub mode=simd opName=sub key=1 cost=2.000000e+00
+  Mode SIMD -> inCost=0.000000e+00, opCost=2.000000e+00, total=2.000000e+00
+[COSTCAST] from=SIMD to=SISD key=simd.cast_to_sisd lvl=8 cost=3.000000e+00
+    Edge from simd.encrypt to simd.sub [pathSIMD=3.000000e+00 pathSISD=INF best=3.000000e+00]
+[COSTCAST] from=SIMD to=SISD key=simd.cast_to_sisd lvl=8 cost=3.000000e+00
+    Edge from simd.encrypt to simd.sub [pathSIMD=3.000000e+00 pathSISD=INF best=3.000000e+00]
+[COSTOP] op=simd.sub mode=sisd opName=sub key=8 cost=5.000000e+00
+  Mode SISD -> inCost=3.000000e+00, opCost=5.000000e+00, total=8.000000e+00
+  => Final for simd.sub: SIMD=2.000000e+00, SISD=8.000000e+00
+
+[DP-FWD] Evaluating node: simd.mult
+[COSTCAST] from=SISD to=SIMD key=sisd.cast_to_simd lvl=1 cost=2.500000e+00
+    Edge from simd.sub to simd.mult [pathSIMD=2.000000e+00 pathSISD=1.050000e+01 best=2.000000e+00]
+[COSTCAST] from=SISD to=SIMD key=sisd.cast_to_simd lvl=1 cost=2.500000e+00
+    Edge from simd.sub to simd.mult [pathSIMD=2.000000e+00 pathSISD=1.050000e+01 best=2.000000e+00]
+[COSTOP] op=simd.mult mode=simd opName=mult key=1 cost=4.000000e+00
+  Mode SIMD -> inCost=2.000000e+00, opCost=4.000000e+00, total=6.000000e+00
+  Mode SISD not feasible for simd.mult
+  => Final for simd.mult: SIMD=6.000000e+00, SISD=INF
+
+[DP-FWD] Evaluating node: simd.min
+[COSTCAST] from=SISD to=SIMD key=sisd.cast_to_simd lvl=1 cost=2.500000e+00
+    Edge from simd.mult to simd.min [pathSIMD=6.000000e+00 pathSISD=INF best=6.000000e+00]
+[COSTOP] op=simd.min mode=simd opName=min key=0 cost=1.000000e+01
+  Mode SIMD -> inCost=6.000000e+00, opCost=1.000000e+01, total=1.600000e+01
+[COSTCAST] from=SIMD to=SISD key=simd.cast_to_sisd lvl=8 cost=3.000000e+00
+    Edge from simd.mult to simd.min [pathSIMD=9.000000e+00 pathSISD=INF best=9.000000e+00]
+[COSTOP] op=simd.min mode=sisd opName=min key=8 cost=1.500000e+00
+  Mode SISD -> inCost=9.000000e+00, opCost=1.500000e+00, total=1.050000e+01
+  => Final for simd.min: SIMD=1.600000e+01, SISD=1.050000e+01
+
+[DP-FWD] Evaluating node: simd.decrypt
+[COSTCAST] from=SISD to=SIMD key=sisd.cast_to_simd lvl=1 cost=2.500000e+00
+    Edge from simd.min to simd.decrypt [pathSIMD=1.600000e+01 pathSISD=1.300000e+01 best=1.300000e+01]
+  Mode SIMD -> inCost=1.300000e+01, opCost=0.000000e+00, total=1.300000e+01
+  Mode SISD not feasible for simd.decrypt
+  => Final for simd.decrypt: SIMD=1.300000e+01, SISD=INF
+
+[COSTCAST] from=SISD to=SIMD key=sisd.cast_to_simd lvl=1 cost=2.500000e+00
+[COSTCAST] from=SIMD to=SISD key=simd.cast_to_sisd lvl=8 cost=3.000000e+00
+[COSTCAST] from=SISD to=SIMD key=sisd.cast_to_simd lvl=1 cost=2.500000e+00
+[COSTCAST] from=SISD to=SIMD key=sisd.cast_to_simd lvl=1 cost=2.500000e+00
+[COSTCAST] from=SISD to=SIMD key=sisd.cast_to_simd lvl=1 cost=2.500000e+00
+[COSTCAST] from=SISD to=SIMD key=sisd.cast_to_simd lvl=1 cost=2.500000e+00
+=== Mode selection for main ===
+Op simd.encrypt SIMD=0.000000e+00 SISD=INF chosen=SIMD
+Op simd.encrypt SIMD=0.000000e+00 SISD=INF chosen=SIMD
+Op simd.sub SIMD=2.000000e+00 SISD=8.000000e+00 chosen=SIMD
+Op simd.mult SIMD=6.000000e+00 SISD=INF chosen=SIMD
+Op simd.min SIMD=1.600000e+01 SISD=1.050000e+01 chosen=SISD
+Op simd.decrypt SIMD=1.300000e+01 SISD=INF chosen=SIMD
+// -----// IR Dump After ConvertToMDSELPass (mode-select) //----- //
+module {
+  llvm.mlir.global internal constant @str1("min: %f\0A\00") {addr_space = 0 : i32}
+  llvm.func @printf(!llvm.ptr, ...) -> i32
+  llvm.mlir.global internal constant @str0("%lf %lf\00") {addr_space = 0 : i32}
+  llvm.func @__isoc99_scanf(!llvm.ptr, ...) -> i32
+  func.func @main() -> i32 {
+    %0 = llvm.mlir.addressof @str1 : !llvm.ptr
+    %1 = llvm.mlir.addressof @str0 : !llvm.ptr
+    %c0 = arith.constant 0 : index
+    %c8 = arith.constant 8 : index
+    %c0_i32 = arith.constant 0 : i32
+    %cst = arith.constant 0.000000e+00 : f64
+    %alloca = memref.alloca() : memref<8xf64>
+    %alloca_0 = memref.alloca() : memref<8xf64>
+    %2 = llvm.getelementptr %1[0, 0] : (!llvm.ptr) -> !llvm.ptr, !llvm.array<8 x i8>
+    %3 = "polygeist.memref2pointer"(%alloca_0) : (memref<8xf64>) -> !llvm.ptr
+    %4 = "polygeist.memref2pointer"(%alloca) : (memref<8xf64>) -> !llvm.ptr
+    affine.for %arg0 = 0 to 8 {
+      %17 = arith.muli %arg0, %c8 : index
+      %18 = arith.index_cast %17 : index to i64
+      %19 = llvm.getelementptr %3[%18] : (!llvm.ptr, i64) -> !llvm.ptr, i8
+      %20 = llvm.getelementptr %4[%18] : (!llvm.ptr, i64) -> !llvm.ptr, i8
+      %21 = llvm.call @__isoc99_scanf(%2, %19, %20) vararg(!llvm.func<i32 (ptr, ...)>) : (!llvm.ptr, !llvm.ptr, !llvm.ptr) -> i32
+    }
+    %5 = vector.transfer_read %alloca_0[%c0], %cst {in_bounds = [true]} : memref<8xf64>, vector<8xf64>
+    %6 = simd.encrypt %5 : vector<8xf64> -> !simd.simdcipher<1 x 8 x i64>
+    %7 = vector.transfer_read %alloca[%c0], %cst {in_bounds = [true]} : memref<8xf64>, vector<8xf64>
+    %8 = simd.encrypt %7 : vector<8xf64> -> !simd.simdcipher<1 x 8 x i64>
+    %9 = simd.sub %6 _ %8 : !simd.simdcipher<1 x 8 x i64>
+    %10 = simd.mult %9 * %9 : !simd.simdcipher<1 x 8 x i64>, !simd.simdcipher<1 x 8 x i64> -> !simd.simdcipher<0 x 8 x i64>
+    %11 = simd.cast_to_sisd %10 : !simd.simdcipher<0 x 8 x i64> -> !sisd.sisdcipher<8 x i64>
+    %12 = sisd.min %11 : !sisd.sisdcipher<8 x i64> -> !sisd.sisdcipher<1 x i64>
+    %13 = sisd.cast_to_simd %12 : !sisd.sisdcipher<1 x i64> -> !simd.simdcipher<0 x 1 x i64>
+    %14 = llvm.getelementptr %0[0, 0] : (!llvm.ptr) -> !llvm.ptr, !llvm.array<9 x i8>
+    %15 = simd.decrypt %13 : !simd.simdcipher<0 x 1 x i64> : f64
+    %16 = llvm.call @printf(%14, %15) vararg(!llvm.func<i32 (ptr, ...)>) : (!llvm.ptr, f64) -> i32
     return %c0_i32 : i32
   }
 }

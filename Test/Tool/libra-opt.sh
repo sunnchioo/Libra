@@ -36,7 +36,7 @@ LOG_FILE="${BASE_WORK_DIR}/out.log"
 
 # --- 3. Set variables ---
 
-LIBRA_OPT_BIN=~/Libra/build/Libra/tools/opt/libra-opt
+LIBRA_OPT_BIN=~/Libra/build/Libra/Tools/opt/libra-opt
 
 # --- 4. Check if tools/inputs exist ---
 
@@ -63,8 +63,11 @@ echo "  Log: $LOG_FILE"
 # Clear old log (if you want to preserve history, remove this line)
 > "$LOG_FILE"
 
+# --convert-to-sisd \  
 $LIBRA_OPT_BIN \
   --convert-to-scfhe \
+  --convert-to-simd \
+  --mode-select \
   -allow-unregistered-dialect \
   --mlir-print-ir-after-all \
   "$INPUT_FILE" \

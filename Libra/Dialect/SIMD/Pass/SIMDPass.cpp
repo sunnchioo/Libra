@@ -1,165 +1,246 @@
-#include "mlir/Dialect/MemRef/IR/MemRef.h"
+#include "mlir/Dialect/Affine/IR/AffineOps.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
+#include "mlir/Dialect/LLVMIR/LLVMDialect.h"
+#include "mlir/Dialect/MemRef/IR/MemRef.h"
+#include "mlir/Dialect/Vector/IR/VectorOps.h"
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/Rewrite/FrozenRewritePatternSet.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
-#include "mlir/Dialect/Affine/IR/AffineOps.h"
 
+#include "SCFHEOps.h"
+#include "SCFHETypes.h"
 #include "SIMDOps.h"
 #include "SIMDPass.h"
 
-namespace mlir::simd {
+#include "SIMDCommon.h"
 
+namespace mlir::libra::simd {
 #define GEN_PASS_DEF_CONVERTTOSIMDPASS
 #include "SIMDPass.h.inc"
 
     namespace {
 
-        class ConvertAddfToSIMDAddPattern : public OpRewritePattern<arith::AddFOp> {
-        public:
+        // static constexpr int64_t DEFAULT_LEVEL = 12;
+
+        /// 封装通用类型转换：SCFHE → SIMD
+        static FailureOr<SIMDCipherType> convertToSIMDType(Type t, MLIRContext* ctx,
+                                                           int64_t level = DEFAULT_LEVEL) {
+            if (auto st = dyn_cast<SIMDCipherType>(t))
+                return st;
+            if (auto st = dyn_cast<scfhe::SCFHECipherType>(t))
+                return SIMDCipherType::get(ctx, level, st.getPlaintextCount(), st.getElementType());
+            return failure();
+        }
+
+        /// 根据两个 operand 类型推断 SIMD 结果类型
+        static FailureOr<SIMDCipherType> inferSIMDResultType(Value a, Value b, MLIRContext* ctx,
+                                                             bool reduceLevel = false) {
+            auto ta = convertToSIMDType(a.getType(), ctx);
+            auto tb = convertToSIMDType(b.getType(), ctx);
+            if (failed(ta) || failed(tb))
+                return failure();
+            int64_t newLevel = std::min(ta->getLevel(), tb->getLevel());
+            if (reduceLevel)
+                newLevel = std::max<int64_t>(0, newLevel - 1);
+            int64_t newPC = std::min(ta->getPlaintextCount(), tb->getPlaintextCount());
+            return SIMDCipherType::get(ctx, newLevel, newPC, ta->getElementType());
+        }
+
+        //===----------------------------------------------------------------------===//
+        // Phase 1: SCFHE → SIMD
+        //===----------------------------------------------------------------------===//
+
+        struct ConvertSCFHEEncryptToSIMDPattern : OpRewritePattern<scfhe::SCFHEEncryptOp> {
             using OpRewritePattern::OpRewritePattern;
-
-            LogicalResult matchAndRewrite(arith::AddFOp addOp,
-                                          PatternRewriter &rewriter) const override {
-                auto lhsType = addOp.getOperand(0).getType();
-                auto rhsType = addOp.getOperand(1).getType();
-                if (!isa<SIMDCipherType>(lhsType) || !isa<SIMDCipherType>(rhsType))
+            LogicalResult matchAndRewrite(scfhe::SCFHEEncryptOp op,
+                                          PatternRewriter& rewriter) const override {
+                auto ctx = rewriter.getContext();
+                auto ty = convertToSIMDType(op.getResult().getType(), ctx);
+                if (failed(ty))
                     return failure();
-
-                auto simdAdd = rewriter.create<simd::SIMDAddOp>(
-                    addOp.getLoc(),
-                    lhsType,
-                    addOp.getOperand(0),
-                    addOp.getOperand(1));
-
-                rewriter.replaceOp(addOp, simdAdd.getResult());
+                auto newOp = rewriter.create<SIMDEncryptOp>(op.getLoc(), *ty, op.getOperand());
+                rewriter.replaceOp(op, newOp);
                 return success();
             }
         };
 
-        class ConvertAffineLoadPattern : public OpRewritePattern<affine::AffineLoadOp> {
-        public:
-            using OpRewritePattern<affine::AffineLoadOp>::OpRewritePattern;
-
-            LogicalResult matchAndRewrite(affine::AffineLoadOp loadOp,
-                                          PatternRewriter &rewriter) const override {
-                Value memref = loadOp.getMemRef();
-
-                // 只处理 MemRefType
-                auto memrefType = dyn_cast<MemRefType>(memref.getType());
-                if (!memrefType)
+        struct ConvertSCFHESubToSIMDPattern : OpRewritePattern<scfhe::SCFHESubOp> {
+            using OpRewritePattern::OpRewritePattern;
+            LogicalResult matchAndRewrite(scfhe::SCFHESubOp op,
+                                          PatternRewriter& rewriter) const override {
+                auto ctx = rewriter.getContext();
+                auto ty = inferSIMDResultType(op.getOperand(0), op.getOperand(1), ctx);
+                if (failed(ty))
                     return failure();
-
-                auto simdType = SIMDCipherType::get(rewriter.getContext());
-
-                // 创建 SIMDCipher 加载 op
-                // auto simdLoad = rewriter.create<simd::SIMDLoadOp>(loadOp.getLoc());
-                auto safeSimdLoad = rewriter.create<simd::SIMDLoadOp>(
-                    loadOp.getLoc(),
-                    simdType,
-                    memref);
-
-                rewriter.replaceOp(loadOp, safeSimdLoad.getResult());
+                auto newOp = rewriter.create<SIMDSubOp>(op.getLoc(), *ty, op.getOperands());
+                rewriter.replaceOp(op, newOp);
                 return success();
             }
         };
 
-        class ConvertMemRefToSIMDCipherPattern : public OpRewritePattern<func::FuncOp> {
-        public:
-            using OpRewritePattern<func::FuncOp>::OpRewritePattern;
+        struct ConvertSCFHEMultToSIMDPattern : OpRewritePattern<scfhe::SCFHEMultOp> {
+            using OpRewritePattern::OpRewritePattern;
+            LogicalResult matchAndRewrite(scfhe::SCFHEMultOp op,
+                                          PatternRewriter& rewriter) const override {
+                auto ctx = rewriter.getContext();
+                auto ty = inferSIMDResultType(op.getOperand(0), op.getOperand(1), ctx, /*reduceLevel=*/true);
+                if (failed(ty))
+                    return failure();
+                auto newOp = rewriter.create<SIMDMultOp>(op.getLoc(), *ty, op.getOperands());
+                rewriter.replaceOp(op, newOp);
+                return success();
+            }
+        };
 
+        struct ConvertSCFHEMinToSIMDPattern : OpRewritePattern<scfhe::SCFHEMinOp> {
+            using OpRewritePattern::OpRewritePattern;
+            LogicalResult matchAndRewrite(scfhe::SCFHEMinOp op,
+                                          PatternRewriter& rewriter) const override {
+                auto ctx = rewriter.getContext();
+                auto inTy = convertToSIMDType(op.getOperand().getType(), ctx);
+                if (failed(inTy))
+                    return failure();
+                auto ty = SIMDCipherType::get(ctx, inTy->getLevel(), /*pc=*/1, inTy->getElementType());
+                auto newOp = rewriter.create<SIMDMinOp>(op.getLoc(), ty, op.getOperand());
+                rewriter.replaceOp(op, newOp);
+                return success();
+            }
+        };
+
+        struct ConvertSCFHEDecryptToSIMDPattern : OpRewritePattern<scfhe::SCFHEDecryptOp> {
+            using OpRewritePattern::OpRewritePattern;
+            LogicalResult matchAndRewrite(scfhe::SCFHEDecryptOp op,
+                                          PatternRewriter& rewriter) const override {
+                auto newOp = rewriter.create<SIMDDecryptOp>(op.getLoc(), op.getResult().getType(),
+                                                            op.getOperand());
+                rewriter.replaceOp(op, newOp);
+                return success();
+            }
+        };
+
+        struct ConvertFuncOpTypesToSIMDPattern : OpRewritePattern<func::FuncOp> {
+            using OpRewritePattern::OpRewritePattern;
             LogicalResult matchAndRewrite(func::FuncOp funcOp,
-                                          PatternRewriter &rewriter) const final {
-                bool modified = false;
+                                          PatternRewriter& rewriter) const override {
+                auto ctx = rewriter.getContext();
+                bool changed = false;
 
-                SmallVector<Type, 4> newArgTypes;
-                for (Type argType : funcOp.getArgumentTypes()) {
-                    if (auto memrefType = dyn_cast<mlir::MemRefType>(argType)) {
-                        newArgTypes.push_back(SIMDCipherType::get(rewriter.getContext()));
-                        modified = true;
+                SmallVector<Type> newArgs, newResults;
+                for (auto t : funcOp.getArgumentTypes()) {
+                    auto ty = convertToSIMDType(t, ctx);
+                    if (succeeded(ty)) {
+                        changed = true;
+                        newArgs.push_back(*ty);
                     } else {
-                        newArgTypes.push_back(argType);
+                        newArgs.push_back(t);
+                    }
+                }
+                for (auto t : funcOp.getResultTypes()) {
+                    auto ty = convertToSIMDType(t, ctx);
+                    if (succeeded(ty)) {
+                        changed = true;
+                        newResults.push_back(*ty);
+                    } else {
+                        newResults.push_back(t);
                     }
                 }
 
-                SmallVector<Type, 4> newResultTypes;
-                for (Type resultType : funcOp.getResultTypes()) {
-                    if (dyn_cast<MemRefType>(resultType) || dyn_cast<FloatType>(resultType)) {
-                        newResultTypes.push_back(SIMDCipherType::get(rewriter.getContext()));
-                        modified = true;
-                    } else {
-                        newResultTypes.push_back(resultType);
-                    }
-                }
-
-                if (!modified)
+                if (!changed)
                     return failure();
 
-                FunctionType newFuncType =
-                    FunctionType::get(rewriter.getContext(), newArgTypes, newResultTypes);
-
-                rewriter.modifyOpInPlace(funcOp, [&]() { funcOp.setType(newFuncType); });
-
-                // 安全更新每个操作的 operand/result
-                funcOp.walk([&](Operation *op) {
-                    for (unsigned i = 0; i < op->getNumResults(); ++i) {
-                        Type t = op->getResult(i).getType();
-                        if (isa<MemRefType>(t))
-                            op->getResult(i).setType(SIMDCipherType::get(rewriter.getContext()));
-                    }
-                    for (unsigned i = 0; i < op->getNumOperands(); ++i) {
-                        Type t = op->getOperand(i).getType();
-                        if (isa<MemRefType>(t))
-                            op->getOperand(i).setType(SIMDCipherType::get(rewriter.getContext()));
-                    }
+                auto newTy = FunctionType::get(ctx, newArgs, newResults);
+                rewriter.modifyOpInPlace(funcOp, [&]() {
+                    funcOp.setType(newTy);
+                    Block& entry = funcOp.front();
+                    for (unsigned i = 0; i < entry.getNumArguments(); ++i)
+                        entry.getArgument(i).setType(newArgs[i]);
                 });
-
                 return success();
             }
         };
 
-        class ConvertMemRefToSIMDCipher
-            : public impl::ConvertToSIMDPassBase<ConvertMemRefToSIMDCipher> {
-        public:
-            using impl::ConvertToSIMDPassBase<ConvertMemRefToSIMDCipher>::ConvertToSIMDPassBase;
+        //===----------------------------------------------------------------------===//
+        // Phase 2: 修正 SIMD level / plaintextCount
+        //===----------------------------------------------------------------------===//
 
-            void runOnOperation() final {
-                Operation *op = getOperation();
+        struct AdjustSIMDMultLevelPattern : OpRewritePattern<SIMDMultOp> {
+            using OpRewritePattern::OpRewritePattern;
+            LogicalResult matchAndRewrite(SIMDMultOp op, PatternRewriter& rewriter) const override {
+                auto ctx = rewriter.getContext();
+                auto ty = inferSIMDResultType(op.getOperand(0), op.getOperand(1), ctx, /*reduceLevel=*/true);
+                if (failed(ty))
+                    return failure();
+                if (*ty == op.getResult().getType())
+                    return failure();
+                auto newOp = rewriter.create<SIMDMultOp>(op.getLoc(), *ty, op.getOperands());
+                rewriter.replaceOp(op, newOp);
+                return success();
+            }
+        };
 
-                // 1. affine.load -> simd.simd_load
+        struct AdjustSIMDSubLevelPattern : OpRewritePattern<SIMDSubOp> {
+            using OpRewritePattern::OpRewritePattern;
+            LogicalResult matchAndRewrite(SIMDSubOp op, PatternRewriter& rewriter) const override {
+                auto ctx = rewriter.getContext();
+                auto ty = inferSIMDResultType(op.getOperand(0), op.getOperand(1), ctx);
+                if (failed(ty))
+                    return failure();
+                if (*ty == op.getResult().getType())
+                    return failure();
+                auto newOp = rewriter.create<SIMDSubOp>(op.getLoc(), *ty, op.getOperands());
+                rewriter.replaceOp(op, newOp);
+                return success();
+            }
+        };
+
+        struct AdjustSIMDMinLevelPattern : OpRewritePattern<SIMDMinOp> {
+            using OpRewritePattern::OpRewritePattern;
+            LogicalResult matchAndRewrite(SIMDMinOp op, PatternRewriter& rewriter) const override {
+                auto inTy = dyn_cast<SIMDCipherType>(op.getOperand().getType());
+                if (!inTy)
+                    return failure();
+                auto newTy = SIMDCipherType::get(rewriter.getContext(), inTy.getLevel(), /*pc=*/1,
+                                                 inTy.getElementType());
+                if (newTy == op.getResult().getType())
+                    return failure();
+                auto newOp = rewriter.create<SIMDMinOp>(op.getLoc(), newTy, op.getOperand());
+                rewriter.replaceOp(op, newOp);
+                return success();
+            }
+        };
+
+        //===----------------------------------------------------------------------===//
+        // Pass
+        //===----------------------------------------------------------------------===//
+
+        struct ConvertSCFHEToSIMDPass
+            : public impl::ConvertToSIMDPassBase<ConvertSCFHEToSIMDPass> {
+            void runOnOperation() override {
+                MLIRContext* ctx = &getContext();
+                Operation* module = getOperation();
+
+                // Phase 1
                 {
-                    RewritePatternSet loadPatterns(&getContext());
-                    loadPatterns.add<ConvertAffineLoadPattern>(&getContext());
-                    FrozenRewritePatternSet frozenLoad(std::move(loadPatterns));
-                    if (failed(applyPatternsGreedily(op, frozenLoad))) {
-                        signalPassFailure();
-                        return;
-                    }
+                    RewritePatternSet patterns(ctx);
+                    patterns.add<ConvertSCFHEEncryptToSIMDPattern,
+                                 ConvertSCFHESubToSIMDPattern,
+                                 ConvertSCFHEMultToSIMDPattern,
+                                 ConvertSCFHEMinToSIMDPattern,
+                                 ConvertSCFHEDecryptToSIMDPattern,
+                                 ConvertFuncOpTypesToSIMDPattern>(ctx);
+                    (void)applyPatternsGreedily(module, std::move(patterns));
                 }
 
-                // 2. arith.addf -> simd.smidadd
+                // Phase 2
                 {
-                    RewritePatternSet addPatterns(&getContext());
-                    addPatterns.add<ConvertAddfToSIMDAddPattern>(&getContext());
-                    FrozenRewritePatternSet frozenAdd(std::move(addPatterns));
-                    if (failed(applyPatternsGreedily(op, frozenAdd))) {
-                        signalPassFailure();
-                        return;
-                    }
-                }
-
-                // 3. memref -> SIMDCipherType
-                {
-                    RewritePatternSet funcPatterns(&getContext());
-                    funcPatterns.add<ConvertMemRefToSIMDCipherPattern>(&getContext());
-                    FrozenRewritePatternSet frozenFunc(std::move(funcPatterns));
-                    if (failed(applyPatternsGreedily(op, frozenFunc))) {
-                        signalPassFailure();
-                        return;
-                    }
+                    RewritePatternSet patterns(ctx);
+                    patterns.add<AdjustSIMDMultLevelPattern,
+                                 AdjustSIMDSubLevelPattern,
+                                 AdjustSIMDMinLevelPattern>(ctx);
+                    (void)applyPatternsGreedily(module, std::move(patterns));
                 }
             }
         };
 
     }  // namespace
-}  // namespace mlir::simd
+}  // namespace mlir::libra::simd

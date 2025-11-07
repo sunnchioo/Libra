@@ -16,24 +16,24 @@ module {
     %3 = "polygeist.memref2pointer"(%alloca_0) : (memref<8xf64>) -> !llvm.ptr
     %4 = "polygeist.memref2pointer"(%alloca) : (memref<8xf64>) -> !llvm.ptr
     affine.for %arg0 = 0 to 8 {
-      %16 = arith.muli %arg0, %c8 : index
-      %17 = arith.index_cast %16 : index to i64
-      %18 = llvm.getelementptr %3[%17] : (!llvm.ptr, i64) -> !llvm.ptr, i8
-      %19 = llvm.getelementptr %4[%17] : (!llvm.ptr, i64) -> !llvm.ptr, i8
-      %20 = llvm.call @__isoc99_scanf(%2, %18, %19) vararg(!llvm.func<i32 (ptr, ...)>) : (!llvm.ptr, !llvm.ptr, !llvm.ptr) -> i32
+      %17 = arith.muli %arg0, %c8 : index
+      %18 = arith.index_cast %17 : index to i64
+      %19 = llvm.getelementptr %3[%18] : (!llvm.ptr, i64) -> !llvm.ptr, i8
+      %20 = llvm.getelementptr %4[%18] : (!llvm.ptr, i64) -> !llvm.ptr, i8
+      %21 = llvm.call @__isoc99_scanf(%2, %19, %20) vararg(!llvm.func<i32 (ptr, ...)>) : (!llvm.ptr, !llvm.ptr, !llvm.ptr) -> i32
     }
     %5 = vector.transfer_read %alloca_0[%c0], %cst {in_bounds = [true]} : memref<8xf64>, vector<8xf64>
-    %6 = scfhe.encrypt %5 : vector<8xf64> -> !scfhe.scfhecipher<8 x i64>
+    %6 = simd.encrypt %5 : vector<8xf64> -> !simd.simdcipher<1 x 8 x i64>
     %7 = vector.transfer_read %alloca[%c0], %cst {in_bounds = [true]} : memref<8xf64>, vector<8xf64>
-    %8 = scfhe.encrypt %7 : vector<8xf64> -> !scfhe.scfhecipher<8 x i64>
-    %9 = scfhe.sub %6 _ %8 : !scfhe.scfhecipher<8 x i64>
-    %10 = scfhe.mult %9 * %9 : !scfhe.scfhecipher<8 x i64>
-    %11 = scfhe.alloca : !scfhe.scfhecipher<8 x i64>
-    scfhe.store %10, %11 : !scfhe.scfhecipher<8 x i64>, !scfhe.scfhecipher<8 x i64>
-    %12 = scfhe.min %11 : !scfhe.scfhecipher<8 x i64> -> !scfhe.scfhecipher<1 x i64>
-    %13 = llvm.getelementptr %0[0, 0] : (!llvm.ptr) -> !llvm.ptr, !llvm.array<9 x i8>
-    %14 = scfhe.decrypt %12 : !scfhe.scfhecipher<1 x i64> : f64
-    %15 = llvm.call @printf(%13, %14) vararg(!llvm.func<i32 (ptr, ...)>) : (!llvm.ptr, f64) -> i32
+    %8 = simd.encrypt %7 : vector<8xf64> -> !simd.simdcipher<1 x 8 x i64>
+    %9 = simd.sub %6 _ %8 : !simd.simdcipher<1 x 8 x i64>
+    %10 = simd.mult %9 * %9 : !simd.simdcipher<1 x 8 x i64>, !simd.simdcipher<1 x 8 x i64> -> !simd.simdcipher<0 x 8 x i64>
+    %11 = simd.cast_to_sisd %10 : !simd.simdcipher<0 x 8 x i64> -> !sisd.sisdcipher<8 x i64>
+    %12 = sisd.min %11 : !sisd.sisdcipher<8 x i64> -> !sisd.sisdcipher<1 x i64>
+    %13 = sisd.cast_to_simd %12 : !sisd.sisdcipher<1 x i64> -> !simd.simdcipher<0 x 1 x i64>
+    %14 = llvm.getelementptr %0[0, 0] : (!llvm.ptr) -> !llvm.ptr, !llvm.array<9 x i8>
+    %15 = simd.decrypt %13 : !simd.simdcipher<0 x 1 x i64> : f64
+    %16 = llvm.call @printf(%14, %15) vararg(!llvm.func<i32 (ptr, ...)>) : (!llvm.ptr, f64) -> i32
     return %c0_i32 : i32
   }
 }

@@ -13,8 +13,11 @@ set(LIBS
   # registered directly in libra-opt.cpp.
   # MLIRToLLVMIRTranslationRegistration
 
-  MLIRSCFHEDialect
+  # MLIRSCFHEDialect
   SCFHEPasses
+  SIMDPasses
+  SISDPasses
+  MODESELECTPasses
 )
 
 # add_mlir_tool(libra-opt  
@@ -35,6 +38,19 @@ target_include_directories(libra-opt
   ${CMAKE_CURRENT_SOURCE_DIR}/../../Dialect/SCFHE/Pass
   ${CMAKE_CURRENT_BINARY_DIR}/../../Dialect/SCFHE/IR
   ${CMAKE_CURRENT_BINARY_DIR}/../../Dialect/SCFHE/Pass
+
+  ${CMAKE_CURRENT_SOURCE_DIR}/../../Dialect/SIMD/IR
+  ${CMAKE_CURRENT_SOURCE_DIR}/../../Dialect/SIMD/Pass
+  ${CMAKE_CURRENT_BINARY_DIR}/../../Dialect/SIMD/IR
+  ${CMAKE_CURRENT_BINARY_DIR}/../../Dialect/SIMD/Pass
+
+  ${CMAKE_CURRENT_SOURCE_DIR}/../../Dialect/SISD/IR
+  ${CMAKE_CURRENT_SOURCE_DIR}/../../Dialect/SISD/Pass
+  ${CMAKE_CURRENT_BINARY_DIR}/../../Dialect/SISD/IR
+  ${CMAKE_CURRENT_BINARY_DIR}/../../Dialect/SISD/Pass
+
+  ${CMAKE_CURRENT_SOURCE_DIR}/../../Dialect/Analysis
+  ${CMAKE_CURRENT_BINARY_DIR}/../../Dialect/Analysis
 )
 
 llvm_update_compile_flags(libra-opt)

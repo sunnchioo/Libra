@@ -1,7 +1,6 @@
 set(LLVM_TARGET_DEFINITIONS SISDPass.td)
 mlir_tablegen(SISDPass.h.inc -gen-pass-decls -name SISDOpt)
 add_public_tablegen_target(MLIRSISDPassesIncGen)
-# add_dependencies(mlir-headers MLIRSISDPassesIncGen)
 
 add_mlir_dialect_library(SISDPasses
   SISDPass.cpp
@@ -14,7 +13,7 @@ add_mlir_dialect_library(SISDPasses
   MLIRSISDDialect
   
   MLIRIR
-  MLIRPass
+  MLIRPass          
   MLIRTransforms
   MLIRAffineDialect
   MLIRFuncDialect

@@ -1,14 +1,6 @@
 #ifndef IR_SISDTYPES_TD_
 #define IR_SISDTYPES_TD_
 
-// include "mlir/IR/AttrTypeBase.td"
-// include "mlir/IR/BuiltinTypeInterfaces.td"
-// include "mlir/IR/CommonTypeConstraints.td"
-// include "mlir/IR/DialectBase.td"
-// include "mlir/IR/Traits.td"
-// include "mlir/IR/OpBase.td"
-// include "mlir/Interfaces/InferTypeOpInterface.td"
-
 include "mlir/IR/DialectBase.td"
 include "mlir/IR/Traits.td"
 include "mlir/IR/AttrTypeBase.td"
@@ -21,11 +13,25 @@ class SISD_Type<string name, string typeMnemonic, list<Trait> traits = []>
   let mnemonic = typeMnemonic;
 }
 
-def SISD_SISDCipherType  : SISD_Type<"SISDCipher", "sisdcipher"> {
-  let summary = "An encrypted SISD Ciphertext type.";
-  let description = "SISDCipher type in SISD dialect.";
-  let parameters = (ins);
-  let assemblyFormat = "";
+def SISD_SISDCipherType : SISD_Type<"SISDCipher", "sisdcipher"> {
+  let summary = "Ciphertext type with element type and plaintext count";
+  let description = [{
+    Represents a ciphertext encoding a fixed number of plaintexts.
+
+    Syntax:
+      !sisd.sisdcipher<Nxetype>
+
+    Example:
+      !sisd.sisdcipher<8xi64>
+      !sisd.sisdcipher<1xf64>
+  }];
+
+  let parameters = (ins
+    "int64_t":$plaintextCount,
+    "Type":$elementType
+  );
+
+  let assemblyFormat = "`<`$plaintextCount`x`$elementType`>`";
 }
 
 #endif // IR_SISDTYPES_TD_

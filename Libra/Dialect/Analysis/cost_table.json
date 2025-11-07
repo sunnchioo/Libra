@@ -1,0 +1,91 @@
+{
+    "metadata": {
+        "version": "1.0",
+        "date": "2025-10-31",
+        "unit": "cycles",
+        "source": "MLIR_IR_analysis",
+        "notes": "Costs for MLIR simd/sisd ops."
+    },
+    "costs": {
+        "simd": {
+            "sub": {
+                "latency": {
+                    "0": 2.0,
+                    "1": 2.0,
+                    "4": 4.0,
+                    "8": 5.0,
+                    "16": 6.5
+                }
+            },
+            "mult": {
+                "latency": {
+                    "0": 3.0,
+                    "1": 4.0,
+                    "4": 6.0,
+                    "8": 8.0,
+                    "16": 10.5
+                }
+            },
+            "min": {
+                "latency": {
+                    "0": 10.0,
+                    "1": 13.0,
+                    "2": 15.0,
+                    "3": 20.0,
+                    "4": 25.0
+                }
+            },
+            "cast_to_sisd": {
+                "latency": {
+                    "0": 2.0,
+                    "1": 2.5,
+                    "4": 2.7,
+                    "8": 3.0,
+                    "16": 3.4
+                }
+            }
+        },
+        "sisd": {
+            "sub": {
+                "latency": {
+                    "1": 2.0,
+                    "4": 4.0,
+                    "8": 5.0,
+                    "16": 6.5
+                }
+            },
+            "min": {
+                "latency": {
+                    "1": 0,
+                    "4": 0.5,
+                    "8": 1.5,
+                    "16": 2.5
+                }
+            },
+            "cast_to_simd": {
+                "latency": {
+                    "1": 2.5,
+                    "4": 2.5,
+                    "8": 2.5,
+                    "16": 2.5
+                }
+            }
+        },
+        "meta": {
+            "levels": [
+                1,
+                4,
+                8,
+                16
+            ],
+            "plaintcount": [
+                1,
+                4,
+                8,
+                16
+            ],
+            "preferred_metric": "latency",
+            "context": "SIMD→SISD+SIMD reduction kernel"
+        }
+    }
+}

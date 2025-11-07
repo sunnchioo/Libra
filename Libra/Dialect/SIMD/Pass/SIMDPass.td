@@ -4,15 +4,14 @@
 include "mlir/Pass/PassBase.td"
 
 def ConvertToSIMDPass : Pass<"convert-to-simd", "::mlir::ModuleOp"> {
-  let summary = "memref<?xf64> to SIMD_SIMDCipher";
+  let summary = "build-in mlir to SIMD";
   let description = [{
-    This Pass converts all memref<?xf64> types to SIMD_SIMDCipher type and replaces the related memory operations.
+    This Pass converts build-in mlir to SIMD mlir.
   }];
 
-  // let cppNamespace = "::mlir::flyhe";
-
   let dependentDialects = [
-    "::mlir::flyhe::SIMDDialect",
+    "::mlir::libra::simd::SIMDDialect",
+    "::mlir::libra::scfhe::SCFHEDialect",
     "::mlir::memref::MemRefDialect",
     "::mlir::arith::ArithDialect"
   ];

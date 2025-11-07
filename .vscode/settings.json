@@ -1,6 +1,7 @@
 {
     "C_Cpp.default.compilerPath": "/usr/bin/g++-13",
     "files.associations": {
+        "*.cu": "cpp",
         "*.inc": "cpp",
         "*.td": "tablegen",
         "typeinfo": "cpp",
@@ -104,7 +105,8 @@
         "valarray": "cpp",
         "syncstream": "cpp",
         "coroutine": "cpp",
-        "expected": "cpp"
+        "expected": "cpp",
+        "sim_stl_pair": "cpp"
     },
     "[tablegen]": {
         "editor.defaultFormatter": "ms-vscode.cpptools",

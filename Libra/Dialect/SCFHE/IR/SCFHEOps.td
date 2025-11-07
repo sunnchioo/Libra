@@ -80,7 +80,6 @@ def SCFHEStoreOp : SCFHE_Op<"store"> {
         AnyType:$value,
         AnyType:$dest);
 
-    // 修正：同时提供了 $value 和 $dest 的类型解析规则
     let assemblyFormat = "$value `,` $dest `:` type($value) `,` type($dest) attr-dict";
 }
 

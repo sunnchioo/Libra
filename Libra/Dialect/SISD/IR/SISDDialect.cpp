@@ -6,10 +6,11 @@
 #include "SISDDialect.h"
 
 using namespace mlir;
-using namespace mlir::sisd;
+using namespace mlir::libra::sisd;
 
 #define GET_TYPEDEF_CLASSES
 #include "SISDTypes.cpp.inc"
+
 #define GET_OP_CLASSES
 #include "SISDOps.cpp.inc"
 

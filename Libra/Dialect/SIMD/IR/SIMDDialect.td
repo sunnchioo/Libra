@@ -11,7 +11,7 @@ def SIMD_Dialect : Dialect {
         SIMD Dialect.
     }];
 
-    let cppNamespace = "::mlir::simd";
+    let cppNamespace = "::mlir::libra::simd";
 
     let useDefaultTypePrinterParser = 1;
 }

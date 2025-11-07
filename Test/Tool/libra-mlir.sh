@@ -70,13 +70,13 @@ fi
 
 echo "Step 2: Running polygeist-opt..."
 $POLYGEIST_OPT_BIN "$TMP_MLIR_FILE" \
-  -affine-super-vectorize="virtual-vector-size=8" \
-  -vectorize-slp \
-  -affine-loop-normalize="promote-single-iter" \
-  -canonicalize \
-  -cse \
-  -affine-simplify-structures \
-  -o "$OUTPUT_FILE"
+ -affine-super-vectorize="virtual-vector-size=8" \
+ -canonicalize \
+ -cse \
+ -vectorize-slp \
+ -affine-loop-normalize="promote-single-iter" \
+ -affine-simplify-structures \
+ -o "$OUTPUT_FILE"
 
 if [ $? -ne 0 ]; then
     echo "polygeist-opt failed! Keeping $TMP_MLIR_FILE for debugging."
