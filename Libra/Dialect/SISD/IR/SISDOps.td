@@ -131,7 +131,7 @@ def SISDDecryptOp : SISD_Op<"decrypt", [Pure]> {
     let results = (outs AnyTypeOf<[AnyFloat, VectorOfFloatTypeConstraint]>:$output);
 
     let assemblyFormat = [{
-        $cipher attr-dict `:` type($cipher) `:` type($output)
+        $cipher attr-dict `:` type($cipher) `->` type($output)
     }];
 }
 

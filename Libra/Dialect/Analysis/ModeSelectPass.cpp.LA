@@ -1,0 +1,519 @@
+#include "mlir/Dialect/Func/IR/FuncOps.h"
+#include "mlir/IR/Builders.h"
+#include "mlir/IR/PatternMatch.h"
+#include "mlir/Pass/Pass.h"
+#include "mlir/Transforms/GreedyPatternRewriteDriver.h"
+#include "mlir/Dialect/MemRef/IR/MemRef.h"
+#include "mlir/Dialect/Arith/IR/Arith.h"
+
+#include "llvm/ADT/DenseMap.h"
+#include "llvm/ADT/StringMap.h"
+#include "llvm/Support/JSON.h"
+#include "llvm/Support/raw_ostream.h"
+#include "llvm/Support/MemoryBuffer.h"
+
+#include "ModeSelectPass.h"
+#include "SIMDOps.h"
+#include "SISDOps.h"
+
+#include "SIMDCommon.h"
+
+#include <algorithm>
+#include <limits>
+
+using namespace mlir;
+using namespace mlir::libra;
+
+namespace mlir::libra::mdsel {
+
+#define GEN_PASS_DEF_CONVERTTOMDSELPASS
+#include "ModeSelectPass.h.inc"
+
+    namespace {
+
+        enum class Mode { SIMD,
+                          SISD };
+
+        // 假设 FHE 方案支持的最大乘法深度/层级
+        // 实际中这个值可能取决于具体的 Scheme (BGV/CKKS/BFV)
+        static const int MAX_LEVEL = 15;
+
+        /// ============================================================================
+        /// [Cost Model]
+        /// 支持 Level-Aware 的成本查询
+        /// ============================================================================
+        struct CostModel {
+            llvm::StringMap<llvm::DenseMap<int64_t, double>> costTable;
+
+            CostModel(StringRef jsonFilename) {
+                auto fileOrErr = llvm::MemoryBuffer::getFile(jsonFilename);
+                if (auto ec = fileOrErr.getError()) {
+                    llvm::errs() << "Error: cannot open cost model: " << jsonFilename
+                                 << ": " << ec.message() << "\n";
+                    return;
+                }
+                std::unique_ptr<llvm::MemoryBuffer> fileBuffer = std::move(*fileOrErr);
+                llvm::Expected<llvm::json::Value> rootOrErr =
+                    llvm::json::parse(fileBuffer->getBuffer());
+                if (!rootOrErr) return;
+                
+                auto* obj = rootOrErr->getAsObject();
+                if (!obj) return;
+                auto* costs = obj->getObject("costs");
+                if (!costs) return;
+
+                for (auto& modePair : *costs) {
+                    llvm::StringRef mode = modePair.first;
+                    auto* modeObj = modePair.second.getAsObject();
+                    if (!modeObj) continue;
+                    for (auto& opPair : *modeObj) {
+                        llvm::StringRef opname = opPair.first;
+                        auto* opObj = opPair.second.getAsObject();
+                        if (!opObj) continue;
+                        if (auto* lat = opObj->getObject("latency")) {
+                            std::string key = (mode + "." + opname).str();
+                            auto& tbl = costTable[key];
+                            for (auto& kv : *lat) {
+                                llvm::StringRef keyStr = kv.first;
+                                long long idx = 0;
+                                if (!keyStr.getAsInteger(10, idx)) {
+                                    if (auto num = kv.second.getAsNumber())
+                                        tbl[idx] = *num;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            double lookup(StringRef key, int64_t idx) const {
+                auto it = costTable.find(key);
+                if (it == costTable.end()) return std::numeric_limits<double>::infinity();
+                auto jt = it->second.find(idx);
+                if (jt == it->second.end()) return std::numeric_limits<double>::infinity();
+                return jt->second;
+            }
+
+            // 查询 Op 在特定 Level 下的成本
+            double costOp(Operation* op, Mode mode, int level) const {
+                if (!isa<simd::SIMDSubOp, simd::SIMDMultOp, simd::SIMDMinOp,
+                         sisd::SISDSubOp, sisd::SISDMinOp,
+                         simd::SIMDAddOp, sisd::SISDAddOp,
+                         simd::SIMDEncryptOp, simd::SIMDDecryptOp,
+                         sisd::SISDEncryptOp, sisd::SISDDecryptOp>(op))
+                    return 0.0;
+
+                StringRef modeName = (mode == Mode::SIMD ? "simd" : "sisd");
+                std::string opName;
+                
+                if (isa<simd::SIMDSubOp, sisd::SISDSubOp>(op)) opName = "sub";
+                else if (isa<simd::SIMDAddOp, sisd::SISDAddOp>(op)) opName = "add";
+                else if (isa<simd::SIMDMultOp>(op)) opName = "mult";
+                else if (isa<simd::SIMDMinOp, sisd::SISDMinOp>(op)) opName = "min";
+                else if (isa<simd::SIMDEncryptOp, sisd::SISDEncryptOp>(op)) opName = "encrypt";
+                else if (isa<simd::SIMDDecryptOp, sisd::SISDDecryptOp>(op)) opName = "decrypt";
+                else return 0.0;
+
+                // 如果是 SIMD，成本可能随 Level 变化（Key = Level）
+                // 如果是 SISD，Level 通常无意义，可以用 0 或数据量 Key
+                int64_t key = level; 
+                
+                // 特殊处理：如果是解密/加密，或者 SISD，可能更关注数据量而不是 Level
+                if (mode == Mode::SISD) key = 1; // 简化处理，假设 SISD Cost 查 key=1
+
+                double c = lookup((modeName + "." + opName).str(), key);
+                
+                // Fallback: 如果查不到特定 Level 的，查 Level 1
+                if (!std::isfinite(c) && level != 1) {
+                     c = lookup((modeName + "." + opName).str(), 1);
+                }
+                // Hard fallback
+                if (!std::isfinite(c)) return (mode == Mode::SIMD ? 10.0 : 1.0); 
+
+                return c;
+            }
+
+            // 查询 Cast 成本
+            // targetLevel: 只有当 to == SIMD 时有意义，表示初始化的层级高度
+            double costCast(Mode from, Mode to, Value v, int targetLevel = 0) const {
+                if (from == to) return 0.0;
+
+                std::string key = (from == Mode::SIMD ? "simd.cast_to_sisd" : "sisd.cast_to_simd");
+                
+                int64_t lookupIdx = 1;
+                if (from == Mode::SISD && to == Mode::SIMD) {
+                    // SISD -> SIMD: 成本与目标 Level 高度正相关
+                    lookupIdx = targetLevel;
+                } else {
+                    // SIMD -> SISD: 成本通常只与数据量有关 (plaintext count)
+                    if (auto t = dyn_cast<simd::SIMDCipherType>(v.getType()))
+                        lookupIdx = t.getPlaintextCount();
+                }
+
+                double c = lookup(key, lookupIdx);
+                
+                // 启发式回退：如果找不到，给个默认值
+                if (!std::isfinite(c)) {
+                    // SISD -> SIMD (初始化) 很贵
+                    if (to == Mode::SIMD) return 100.0 + targetLevel * 10.0; 
+                    // SIMD -> SISD (解密) 相对便宜
+                    else return 50.0;
+                }
+                return c;
+            }
+
+            bool feasible(Operation* op, Mode mode) const {
+                if (isa<simd::SIMDMultOp>(op)) return mode == Mode::SIMD;
+                return true;
+            }
+        };
+
+        /// ============================================================================
+        /// [Graph Structure]
+        /// ============================================================================
+        struct Edge {
+            Operation* producer;
+            Operation* consumer;
+            Value val;
+        };
+
+        struct Node {
+            Operation* op;
+            SmallVector<Edge*, 4> inEdges;
+            SmallVector<Edge*, 4> outEdges;
+            
+            // --- 状态空间 (State Space) ---
+            // SISD: 单状态
+            double costSISD = std::numeric_limits<double>::infinity();
+            
+            // SIMD: 多状态 (Key: Remaining Level, Value: Cumulative Cost)
+            // 使用 Map 存储稀疏状态
+            llvm::DenseMap<int, double> costSIMD; 
+            
+            // --- 决策结果 ---
+            struct Decision {
+                Mode mode = Mode::SIMD;
+                int level = 0; // 仅当 mode == SIMD 时有效
+            } chosen;
+        };
+
+        /// ============================================================================
+        /// [Main Pass]
+        /// ============================================================================
+        class ConvertToModeSelectIR
+            : public impl::ConvertToMDSELPassBase<ConvertToModeSelectIR> {
+        public:
+            using impl::ConvertToMDSELPassBase<ConvertToModeSelectIR>::ConvertToMDSELPassBase;
+
+            StringRef getOptionFilePath() {
+                return "/mnt/data0/home/syt/Libra/Libra/Dialect/Analysis/cost_table.json";
+            }
+
+            void runOnOperation() override {
+                ModuleOp module = getOperation();
+                CostModel costModel(getOptionFilePath());
+
+                for (func::FuncOp func : module.getOps<func::FuncOp>()) {
+                    llvm::DenseMap<Operation*, std::unique_ptr<Node>> nodes;
+                    SmallVector<Node*, 64> topo;
+                    std::vector<std::unique_ptr<Edge>> allEdges;
+
+                    // 1. Build Nodes
+                    func.walk([&](Operation* op) {
+                        if (isa<simd::SIMDSubOp, simd::SIMDMultOp, simd::SIMDMinOp,
+                                simd::SIMDEncryptOp, simd::SIMDDecryptOp,
+                                sisd::SISDSubOp, sisd::SISDMinOp,
+                                sisd::SISDEncryptOp, sisd::SISDDecryptOp,
+                                simd::SIMDAddOp, sisd::SISDAddOp>(op)) {
+                            auto n = std::make_unique<Node>();
+                            n->op = op;
+                            nodes[op] = std::move(n);
+                        }
+                    });
+
+                    // 2. Build Edges
+                    for (auto& p : nodes) {
+                        Operation* op = p.first;
+                        Node* node = p.second.get();
+                        for (Value v : op->getOperands()) {
+                            if (Operation* def = v.getDefiningOp()) {
+                                if (nodes.count(def)) {
+                                    allEdges.push_back(std::make_unique<Edge>(Edge{def, op, v}));
+                                    Edge* e = allEdges.back().get();
+                                    node->inEdges.push_back(e);
+                                    nodes[def]->outEdges.push_back(e);
+                                }
+                            }
+                        }
+                    }
+
+                    // 3. Topo Sort
+                    llvm::DenseMap<Operation*, int> indeg;
+                    SmallVector<Operation*, 64> q;
+                    for (auto& p : nodes) {
+                        indeg[p.first] = p.second->inEdges.size();
+                        if (indeg[p.first] == 0) q.push_back(p.first);
+                    }
+                    while (!q.empty()) {
+                        Operation* op = q.pop_back_val();
+                        if (!nodes.count(op)) continue;
+                        topo.push_back(nodes[op].get());
+                        for (Edge* e : nodes[op]->outEdges) {
+                            indeg[e->consumer]--;
+                            if (indeg[e->consumer] == 0) q.push_back(e->consumer);
+                        }
+                    }
+
+                    // 4. DP Forward (Level-Aware)
+                    for (Node* n : topo) {
+                        Operation* op = n->op;
+                        
+                        // --- 计算 SISD 成本 (单状态) ---
+                        if (costModel.feasible(op, Mode::SISD)) {
+                            double inCost = 0.0;
+                            for (Edge* e : n->inEdges) {
+                                Node* pnode = nodes[e->producer].get();
+                                // SISD的前驱可以是SISD，也可以是任意Level的SIMD
+                                double costFromSISD = pnode->costSISD;
+                                double costFromSIMD = std::numeric_limits<double>::infinity();
+                                
+                                // 找一个最便宜的 SIMD Level 进行转换 (Decrypt)
+                                for (auto& kv : pnode->costSIMD) {
+                                    double c = kv.second + costModel.costCast(Mode::SIMD, Mode::SISD, e->val);
+                                    if (c < costFromSIMD) costFromSIMD = c;
+                                }
+                                inCost = std::max(inCost, std::min(costFromSISD, costFromSIMD));
+                            }
+                            n->costSISD = inCost + costModel.costOp(op, Mode::SISD, 0);
+                        }
+
+                        // --- 计算 SIMD 成本 (多状态：遍历 Output Level) ---
+                        if (costModel.feasible(op, Mode::SIMD)) {
+                            for (int outL = 0; outL <= MAX_LEVEL; ++outL) {
+                                // 推导该 Op 如果要产生 outL，需要什么 Level 的输入？
+                                int reqInL = outL;
+                                if (isa<simd::SIMDMultOp>(op)) reqInL = outL + 1; 
+                                // Add/Sub/Min 通常维持 Level
+                                
+                                if (reqInL > MAX_LEVEL) continue; // 状态不可达
+
+                                double inCost = 0.0;
+                                bool possible = true;
+
+                                for (Edge* e : n->inEdges) {
+                                    Node* pnode = nodes[e->producer].get();
+                                    
+                                    // 路径 A: 保持 SIMD (Requires Input Level >= reqInL)
+                                    // 这里简化为严格匹配 reqInL，如果要支持 Rescale (降级)，需遍历 >= reqInL 的所有状态
+                                    double pathStaySIMD = std::numeric_limits<double>::infinity();
+                                    if (pnode->costSIMD.count(reqInL)) {
+                                        pathStaySIMD = pnode->costSIMD[reqInL];
+                                    }
+
+                                    // 路径 B: SISD -> SIMD (Requires Cast to reqInL)
+                                    double pathFromSISD = pnode->costSISD + 
+                                                          costModel.costCast(Mode::SISD, Mode::SIMD, e->val, reqInL);
+
+                                    double best = std::min(pathStaySIMD, pathFromSISD);
+                                    if (best == std::numeric_limits<double>::infinity()) {
+                                        possible = false; break;
+                                    }
+                                    inCost = std::max(inCost, best);
+                                }
+                                
+                                // 特殊处理：如果是 Encrypt，它是源头，不需要前驱
+                                if (isa<simd::SIMDEncryptOp>(op)) {
+                                    // Encrypt 的输入是明文(向量)，假设前驱准备好了
+                                    // 这里假设 Encrypt 直接把 outL 作为目标 Level
+                                    inCost = 0.0; 
+                                    possible = true;
+                                }
+
+                                if (possible) {
+                                    n->costSIMD[outL] = inCost + costModel.costOp(op, Mode::SIMD, outL);
+                                }
+                            }
+                        }
+                    }
+
+                    // 5. DP Backward (Smart Backtracking / Fan-out Aware)
+                    llvm::DenseMap<Operation*, Node::Decision> finalDecisions;
+
+                    for (auto it = topo.rbegin(); it != topo.rend(); ++it) {
+                        Node* n = *it;
+                        Operation* op = n->op;
+
+                        // 5.1 找出 SIMD 下的最优 Level (Local Best)
+                        double bestSIMDCost = std::numeric_limits<double>::infinity();
+                        int bestLevel = 0;
+                        for (auto& kv : n->costSIMD) {
+                            if (kv.second < bestSIMDCost) {
+                                bestSIMDCost = kv.second;
+                                bestLevel = kv.first;
+                            }
+                        }
+
+                        // 5.2 计算 Fan-out 修正后的总成本
+                        
+                        // Option A: Choose SISD
+                        double totalIfSISD = n->costSISD;
+                        bool needsCastToSIMD = false; // 只要有一个消费者需要 SIMD，我们就加一次 Cast
+                        int maxReqLevel = 0; // 如果要转 SIMD，转到消费者需要的最高 Level
+
+                        for (Edge* e : n->outEdges) {
+                            if (finalDecisions.count(e->consumer)) {
+                                auto& dec = finalDecisions[e->consumer];
+                                if (dec.mode == Mode::SIMD) {
+                                    needsCastToSIMD = true;
+                                    // 消费者需要的输入 Level 推导
+                                    int consumerNeedInL = dec.level; 
+                                    if (isa<simd::SIMDMultOp>(e->consumer)) consumerNeedInL += 1;
+                                    maxReqLevel = std::max(maxReqLevel, consumerNeedInL);
+                                }
+                            }
+                        }
+                        if (needsCastToSIMD) {
+                            totalIfSISD += costModel.costCast(Mode::SISD, Mode::SIMD, op->getResult(0), maxReqLevel);
+                        }
+
+                        // Option B: Choose SIMD (Best Level)
+                        double totalIfSIMD = bestSIMDCost;
+                        bool needsCastToSISD = false;
+
+                        for (Edge* e : n->outEdges) {
+                            if (finalDecisions.count(e->consumer)) {
+                                auto& dec = finalDecisions[e->consumer];
+                                if (dec.mode == Mode::SISD) {
+                                    needsCastToSISD = true;
+                                    break; // 只要有一个 SISD 消费者，就得 Cast
+                                }
+                                // 进阶：如果有 SIMD 消费者需要的 Level 高于 current bestLevel，这在 DP Forward 中应该已被过滤
+                                // 但如果发生不匹配，这里可能需要惩罚 (忽略简化)
+                            }
+                        }
+                        if (needsCastToSISD) {
+                            totalIfSIMD += costModel.costCast(Mode::SIMD, Mode::SISD, op->getResult(0));
+                        }
+
+                        // 5.3 最终决策
+                        if (totalIfSIMD <= totalIfSISD) {
+                            n->chosen.mode = Mode::SIMD;
+                            n->chosen.level = bestLevel;
+                        } else {
+                            n->chosen.mode = Mode::SISD;
+                            n->chosen.level = 0;
+                        }
+                        finalDecisions[op] = n->chosen;
+                        
+                        llvm::errs() << "Op " << op->getName() 
+                                     << " Chosen: " << (n->chosen.mode == Mode::SIMD ? "SIMD" : "SISD")
+                                     << (n->chosen.mode == Mode::SIMD ? (" L=" + std::to_string(n->chosen.level)) : "") << "\n";
+                    }
+
+                    // 6. Rewrite (Side-by-Side)
+                    IRRewriter rewriter(&getContext());
+                    llvm::DenseMap<Value, Value> valueMapping;
+
+                    for (Node* n : topo) {
+                        Operation* op = n->op;
+                        Mode targetMode = n->chosen.mode;
+                        int targetLevel = n->chosen.level;
+
+                        rewriter.setInsertionPoint(op);
+                        SmallVector<Value, 4> newOperands;
+
+                        // 6.1 Prepare Operands (Lazy Cast)
+                        for (Value oldOperand : op->getOperands()) {
+                            Value mappedVal = valueMapping.lookup(oldOperand);
+                            if (!mappedVal) mappedVal = oldOperand;
+
+                            Type currentTy = mappedVal.getType();
+                            
+                            // CASE: Have SIMD, Need SISD
+                            if (auto t = dyn_cast<simd::SIMDCipherType>(currentTy)) {
+                                if (targetMode == Mode::SISD) {
+                                    auto targetTy = sisd::SISDCipherType::get(
+                                        op->getContext(), t.getPlaintextCount(), t.getElementType());
+                                    mappedVal = rewriter.create<simd::SIMDCastSIMDCipherToSISDCipherOp>(
+                                        op->getLoc(), targetTy, mappedVal);
+                                }
+                            }
+                            // CASE: Have SISD, Need SIMD
+                            else if (auto t = dyn_cast<sisd::SISDCipherType>(currentTy)) {
+                                if (targetMode == Mode::SIMD) {
+                                    // 关键：这里使用 DP 算出的 targetLevel 来反推需要的输入 Level
+                                    // 如果当前是 Add，输入Level = 输出Level
+                                    // 如果当前是 Mult，输入Level = 输出Level + 1
+                                    int reqCastLevel = targetLevel;
+                                    if (isa<simd::SIMDMultOp>(op)) reqCastLevel += 1;
+
+                                    auto targetTy = simd::SIMDCipherType::get(
+                                        op->getContext(), reqCastLevel, t.getPlaintextCount(), t.getElementType());
+                                    mappedVal = rewriter.create<sisd::SISDCastSISDCipherToSIMDCipherOp>(
+                                        op->getLoc(), targetTy, mappedVal);
+                                }
+                            }
+                            newOperands.push_back(mappedVal);
+                        }
+
+                        // 6.2 Create New Op
+                        Operation* newOp = nullptr;
+                        
+                        // 辅助 lambda：根据 Mode 创建 SISD 或 SIMD Cipher Type
+                        auto getResType = [&](simd::SIMDCipherType oldSimdTy) -> Type {
+                            if (targetMode == Mode::SISD) {
+                                return sisd::SISDCipherType::get(op->getContext(), 
+                                    oldSimdTy.getPlaintextCount(), oldSimdTy.getElementType());
+                            } else {
+                                return simd::SIMDCipherType::get(op->getContext(), 
+                                    targetLevel, oldSimdTy.getPlaintextCount(), oldSimdTy.getElementType());
+                            }
+                        };
+
+                        if (auto oldTy = dyn_cast<simd::SIMDCipherType>(op->getResult(0).getType())) {
+                            Type newResTy = getResType(oldTy);
+                            
+                            if (isa<simd::SIMDMinOp, sisd::SISDMinOp>(op)) {
+                                if (targetMode == Mode::SISD) newOp = rewriter.create<sisd::SISDMinOp>(op->getLoc(), newResTy, newOperands[0]);
+                                else newOp = rewriter.create<simd::SIMDMinOp>(op->getLoc(), newResTy, newOperands[0]);
+                            } 
+                            else if (isa<simd::SIMDSubOp, sisd::SISDSubOp>(op)) {
+                                if (targetMode == Mode::SISD) newOp = rewriter.create<sisd::SISDSubOp>(op->getLoc(), newResTy, newOperands[0], newOperands[1]);
+                                else newOp = rewriter.create<simd::SIMDSubOp>(op->getLoc(), newResTy, newOperands[0], newOperands[1]);
+                            }
+                            else if (isa<simd::SIMDAddOp, sisd::SISDAddOp>(op)) {
+                                if (targetMode == Mode::SISD) newOp = rewriter.create<sisd::SISDAddOp>(op->getLoc(), newResTy, newOperands[0], newOperands[1]);
+                                else newOp = rewriter.create<simd::SIMDAddOp>(op->getLoc(), newResTy, newOperands[0], newOperands[1]);
+                            }
+                            else if (isa<simd::SIMDEncryptOp, sisd::SISDEncryptOp>(op)) {
+                                if (targetMode == Mode::SISD) newOp = rewriter.create<sisd::SISDEncryptOp>(op->getLoc(), newResTy, newOperands[0]);
+                                else newOp = rewriter.create<simd::SIMDEncryptOp>(op->getLoc(), newResTy, newOperands[0]);
+                            }
+                            else if (isa<simd::SIMDMultOp>(op)) {
+                                // Mult 只能是 SIMD (在 CostModel feasible 中限制了)
+                                newOp = rewriter.create<simd::SIMDMultOp>(op->getLoc(), newResTy, newOperands[0], newOperands[1]);
+                            }
+                        } 
+                        // Decrypt 是特例 (返回原生类型)
+                        else if (isa<simd::SIMDDecryptOp, sisd::SISDDecryptOp>(op)) {
+                            if (targetMode == Mode::SISD) newOp = rewriter.create<sisd::SISDDecryptOp>(op->getLoc(), op->getResultTypes(), newOperands[0]);
+                            else newOp = rewriter.create<simd::SIMDDecryptOp>(op->getLoc(), op->getResultTypes(), newOperands[0]);
+                        }
+
+                        if (newOp) {
+                            valueMapping[op->getResult(0)] = newOp->getResult(0);
+                        }
+                    }
+
+                    // 7. Final Replace
+                    for (auto it = topo.rbegin(); it != topo.rend(); ++it) {
+                        Operation* oldOp = (*it)->op;
+                        if (valueMapping.count(oldOp->getResult(0))) {
+                            rewriter.replaceOp(oldOp, valueMapping[oldOp->getResult(0)]);
+                        }
+                    }
+                }
+            }
+        };
+    }  // namespace
+}  // namespace mlir::libra::mdsel

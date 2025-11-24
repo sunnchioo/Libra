@@ -89,6 +89,31 @@ def SIMDCastSIMDCipherToSISDCipherOp : SIMD_Op<"cast_to_sisd", [Pure]> {
   let assemblyFormat = "$input attr-dict `:` type($input) `->` type($result)";
 }
 
+def SIMDBootOp : SIMD_Op<"boot", [Pure]> {
+    let summary = "Performs FHE bootstrapping to refresh the noise budget to a specific level.";
+    
+    let description = [{
+        This operation takes a ciphertext and returns a new ciphertext with a refreshed 
+        noise budget (level).
+        
+        Unlike traditional bootstrapping which might always restore to the maximum level,
+        this operation's output level is determined by the compiler (e.g., via dynamic 
+        programming) to meet the minimum level requirements of downstream consumers 
+        while minimizing total latency.
+
+        Example:
+          // Bootstrapping to Level 15 because downstream only needs Level 15
+          %new = simd.boot %old : !simd.simdcipher<0 x 8 x i64> -> !simd.simdcipher<15 x 8 x i64>
+    }];
+
+    let arguments = (ins AnyType:$input);
+    let results = (outs AnyType:$result);
+
+    let assemblyFormat = [{
+        $input attr-dict `:` type($input) `->` type($result)
+    }];
+}
+
 def SIMDLoadOp : SIMD_Op<"load"> {
     let summary = "Load a SIMD cipher value";
     let arguments = (ins AnyType:$src);

@@ -1,0 +1,526 @@
+#include "mlir/Dialect/Func/IR/FuncOps.h"
+#include "mlir/IR/Builders.h"
+#include "mlir/IR/PatternMatch.h"
+#include "mlir/Pass/Pass.h"
+#include "mlir/Transforms/GreedyPatternRewriteDriver.h"
+#include "mlir/Dialect/MemRef/IR/MemRef.h"
+#include "mlir/Dialect/Arith/IR/Arith.h"
+
+#include "llvm/ADT/DenseMap.h"
+#include "llvm/ADT/StringMap.h"
+#include "llvm/Support/JSON.h"
+#include "llvm/Support/raw_ostream.h"
+#include "llvm/Support/MemoryBuffer.h"
+
+#include "ModeSelectPass.h"
+#include "SIMDOps.h"
+#include "SISDOps.h"
+
+#include "SIMDCommon.h"
+
+#include <algorithm>
+#include <limits>
+
+using namespace mlir;
+using namespace mlir::libra;
+
+namespace mlir::libra::mdsel {
+
+#define GEN_PASS_DEF_CONVERTTOMDSELPASS
+#include "ModeSelectPass.h.inc"
+
+    namespace {
+
+        enum class Mode { SIMD,
+                          SISD };
+
+        ///------------------------------ COST MODEL ------------------------------
+        struct CostModel {
+            llvm::StringMap<llvm::DenseMap<int64_t, double>> costTable;
+
+            CostModel(StringRef jsonFilename) {
+                auto fileOrErr = llvm::MemoryBuffer::getFile(jsonFilename);
+                if (auto ec = fileOrErr.getError()) {
+                    llvm::errs() << "Error: cannot open cost model: " << jsonFilename
+                                 << ": " << ec.message() << "\n";
+                    return;
+                }
+                std::unique_ptr<llvm::MemoryBuffer> fileBuffer = std::move(*fileOrErr);
+                llvm::Expected<llvm::json::Value> rootOrErr =
+                    llvm::json::parse(fileBuffer->getBuffer());
+                if (!rootOrErr) {
+                    llvm::errs() << "Error parsing JSON: "
+                                 << llvm::toString(rootOrErr.takeError()) << "\n";
+                    return;
+                }
+                auto* obj = rootOrErr->getAsObject();
+                if (!obj)
+                    return;
+                auto* costs = obj->getObject("costs");
+                if (!costs)
+                    return;
+                for (auto& modePair : *costs) {
+                    llvm::StringRef mode = modePair.first;
+                    auto* modeObj = modePair.second.getAsObject();
+                    if (!modeObj)
+                        continue;
+                    for (auto& opPair : *modeObj) {
+                        llvm::StringRef opname = opPair.first;
+                        auto* opObj = opPair.second.getAsObject();
+                        if (!opObj)
+                            continue;
+                        if (auto* lat = opObj->getObject("latency")) {
+                            std::string key = (mode + "." + opname).str();
+                            auto& tbl = costTable[key];
+                            for (auto& kv : *lat) {
+                                llvm::StringRef keyStr = kv.first;
+                                long long idx = 0;
+                                if (keyStr.getAsInteger(10, idx))  // 返回 true 表示失败
+                                    continue;
+                                if (auto num = kv.second.getAsNumber())
+                                    tbl[idx] = *num;
+                            }
+                        }
+                    }
+                }
+            }
+
+            double lookup(StringRef key, int64_t idx) const {
+                auto it = costTable.find(key);
+                if (it == costTable.end())
+                    return std::numeric_limits<double>::infinity();
+                auto jt = it->second.find(idx);
+                if (jt == it->second.end())
+                    return std::numeric_limits<double>::infinity();
+                return jt->second;
+            }
+
+            double costOp(Operation* op, Mode mode) const {
+                if (!isa<simd::SIMDSubOp, simd::SIMDMultOp, simd::SIMDMinOp,
+                         sisd::SISDSubOp, sisd::SISDMinOp>(op))
+                    return 0.0;
+
+                StringRef modeName = (mode == Mode::SIMD ? "simd" : "sisd");
+                std::string opName;
+                if (isa<simd::SIMDSubOp, sisd::SISDSubOp>(op))
+                    opName = "sub";
+                else if (isa<simd::SIMDAddOp, sisd::SISDAddOp>(op))
+                    opName = "add";
+                else if (isa<simd::SIMDMultOp>(op))
+                    opName = "mult";
+                else if (isa<simd::SIMDMinOp, sisd::SISDMinOp>(op))
+                    opName = "min";
+                else
+                    return 0.0;
+
+                int64_t key = 1;
+                if (op->getNumOperands() == 0) {
+                    llvm::errs()
+                        << "[COSTOP] Warning: Op " << op->getName()
+                        << " has 0 operands. Using default key=1.\n";
+                } else {
+                    Type inTy = op->getOperand(0).getType();
+
+                    if (mode == Mode::SIMD) {
+                        if (auto t = dyn_cast<simd::SIMDCipherType>(inTy)) {
+                            key = t.getLevel();
+                        }
+                    } else {
+                        if (auto t = dyn_cast<simd::SIMDCipherType>(inTy)) {
+                            key = t.getPlaintextCount();
+                        } else if (auto t = dyn_cast<sisd::SISDCipherType>(inTy)) {
+                            key = t.getPlaintextCount();
+                        }
+                    }
+                }
+
+                double c = lookup((modeName + "." + opName).str(), key);
+
+                llvm::errs() << "[COSTOP] op=" << op->getName()
+                             << " mode=" << modeName
+                             << " opName=" << opName
+                             << " key=" << key
+                             << " cost=" << c << "\n";
+
+                return c;
+            }
+
+            double costCast(Mode from, Mode to, Value v) const {
+                if (from == to)
+                    return 0.0;
+
+                std::string key = (from == Mode::SIMD ? "simd.cast_to_sisd"
+                                                      : "sisd.cast_to_simd");
+                int64_t lvl = 1;
+                Type vTy = v.getType();  // 获取类型
+
+                if (from == Mode::SIMD) {
+                    if (auto t = dyn_cast<simd::SIMDCipherType>(vTy))
+                        lvl = t.getPlaintextCount();  // <-- 修复: 按照规则使用 plaintextCount
+                } else {
+                    if (auto t = dyn_cast<sisd::SISDCipherType>(vTy))
+                        lvl = t.getPlaintextCount();  // <-- 这部分(SISD->SIMD)原本就是正确的
+                }
+
+                double c = lookup(key, lvl);
+                llvm::errs() << "[COSTCAST] from=" << (from == Mode::SIMD ? "SIMD" : "SISD")
+                             << " to=" << (to == Mode::SIMD ? "SIMD" : "SISD")
+                             << " key=" << key << " lvl=" << lvl
+                             << " cost=" << c << "\n";
+                if (!std::isfinite(c))
+                    return 10000.0;  // 返回一个高成本
+                return c;
+            }
+
+            // bool feasible(Operation* op, Mode mode) const {
+            //     // 修复 #2: 确保 SIMD-only ops 在 SISD 模式下不可行
+            //     if (mode == Mode::SISD) {
+            //         if (isa<simd::SIMDMultOp,
+            //                 simd::SIMDEncryptOp,
+            //                 simd::SIMDDecryptOp>(op))
+            //             return false;
+            //     }
+            //     return true;
+            // }
+
+            bool feasible(Operation* op, Mode mode) const {
+                // [修改] 移除原来的这一段，不要强制 Encrypt/Decrypt 只能是 SIMD
+                // if (isa<simd::SIMDEncryptOp, simd::SIMDDecryptOp>(op))
+                //    return mode == Mode::SIMD;
+
+                // [修改] 改为：只限制那些真的无法在 SISD 下运行的 Op (比如 SIMDMult)
+                // 如果你有对应的 SISD Op (sisd.encrypt, sisd.decrypt)，那么它们在 SISD 模式下就是可行的
+                if (isa<simd::SIMDMultOp>(op))
+                    return mode == Mode::SIMD;
+
+                // 保持对 SISD Ops 的限制
+                // if (isa<sisd::SISDEncryptOp, sisd::SISDDecryptOp>(op))
+                //     return mode == Mode::SISD;
+
+                return true;
+            }
+        };
+
+        ///------------------------------- DAG ------------------------------------
+        struct Edge {
+            Operation* producer;
+            Operation* consumer;
+            Value val;
+        };
+
+        struct Node {
+            Operation* op;
+            SmallVector<Edge*, 4> inEdges;
+            SmallVector<Edge*, 4> outEdges;
+            double costSIMD = std::numeric_limits<double>::infinity();
+            double costSISD = std::numeric_limits<double>::infinity();
+            Mode chosenMode = Mode::SIMD;  // 默认
+        };
+
+        ///------------------------------ MAIN PASS -------------------------------
+        class ConvertToModeSelectIR
+            : public impl::ConvertToMDSELPassBase<ConvertToModeSelectIR> {
+        public:
+            using impl::ConvertToMDSELPassBase<ConvertToModeSelectIR>::ConvertToMDSELPassBase;
+
+            StringRef getOptionFilePath() {
+                // change to your cost file
+                return "/mnt/data0/home/syt/Libra/Libra/Dialect/Analysis/cost_table.json";
+            }
+
+            void runOnOperation() override {
+                ModuleOp module = getOperation();
+                CostModel costModel(getOptionFilePath());
+
+                for (func::FuncOp func : module.getOps<func::FuncOp>()) {
+                    llvm::DenseMap<Operation*, std::unique_ptr<Node>> nodes;
+                    SmallVector<Node*, 64> topo;
+                    std::vector<std::unique_ptr<Edge>> allEdges;  // 用于管理 Edge 内存
+
+                    // Build nodes
+                    func.walk([&](Operation* op) {
+                        // 只为我们关心的 dialect ops 创建节点
+                        if (isa<simd::SIMDSubOp, simd::SIMDMultOp, simd::SIMDMinOp,
+                                simd::SIMDEncryptOp, simd::SIMDDecryptOp,
+                                sisd::SISDSubOp, sisd::SISDMinOp,
+                                sisd::SISDEncryptOp, sisd::SISDDecryptOp>(op)) {
+                            auto n = std::make_unique<Node>();
+                            n->op = op;
+                            nodes[op] = std::move(n);
+                        }
+                    });
+
+                    // Build edges
+                    for (auto& p : nodes) {
+                        Operation* op = p.first;
+                        Node* node = p.second.get();
+                        for (Value v : op->getOperands()) {
+                            if (Operation* def = v.getDefiningOp()) {
+                                if (nodes.count(def)) {  // 只连接在 graph 中的节点
+                                    allEdges.push_back(std::make_unique<Edge>(Edge{def, op, v}));
+                                    Edge* e = allEdges.back().get();
+                                    node->inEdges.push_back(e);
+                                    nodes[def]->outEdges.push_back(e);
+                                }
+                            }
+                        }
+                    }
+
+                    // Topo sort (Kahn)
+                    llvm::DenseMap<Operation*, int> indeg;
+                    SmallVector<Operation*, 64> q;
+
+                    for (auto& p : nodes) {
+                        Operation* op = p.first;
+                        int cnt = p.second->inEdges.size();  // 使用我们构建的边
+                        indeg[op] = cnt;
+                        if (cnt == 0)
+                            q.push_back(op);
+                    }
+
+                    while (!q.empty()) {
+                        Operation* op = q.pop_back_val();
+                        if (!nodes.count(op))
+                            continue;  // 安全检查
+                        topo.push_back(nodes[op].get());
+                        for (Edge* e : nodes[op]->outEdges) {
+                            indeg[e->consumer]--;
+                            if (indeg[e->consumer] == 0)
+                                q.push_back(e->consumer);
+                        }
+                    }
+
+                    // DP forward
+                    for (Node* n : topo) {
+                        Operation* op = n->op;
+                        llvm::errs() << "[DP-FWD] Evaluating node: " << op->getName() << "\n";
+
+                        for (Mode m : {Mode::SIMD, Mode::SISD}) {
+                            if (!costModel.feasible(op, m)) {
+                                llvm::errs() << "  Mode " << (m == Mode::SIMD ? "SIMD" : "SISD")
+                                             << " not feasible for " << op->getName() << "\n";
+                                continue;
+                            }
+
+                            double inCost = 0.0;
+                            for (Edge* e : n->inEdges) {
+                                Node* pnode = nodes[e->producer].get();
+
+                                double costFromSIMD = pnode->costSIMD +
+                                                      costModel.costCast(Mode::SIMD, m, e->val);
+                                double costFromSISD = pnode->costSISD +
+                                                      costModel.costCast(Mode::SISD, m, e->val);
+
+                                double bestPredCost = std::min(costFromSIMD, costFromSISD);
+
+                                llvm::errs() << "    Edge from " << pnode->op->getName()
+                                             << " to " << op->getName()
+                                             << " [pathSIMD=" << costFromSIMD
+                                             << " pathSISD=" << costFromSISD
+                                             << " best=" << bestPredCost << "]\n";
+
+                                // 修复 #3: 关键路径应该是最长的前驱路径
+                                inCost = std::max(inCost, bestPredCost);
+                            }
+
+                            double nodeC = costModel.costOp(op, m);
+                            double total = inCost + nodeC;
+
+                            llvm::errs() << "  Mode " << (m == Mode::SIMD ? "SIMD" : "SISD")
+                                         << " -> inCost=" << inCost
+                                         << ", opCost=" << nodeC
+                                         << ", total=" << total << "\n";
+
+                            if (m == Mode::SIMD)
+                                n->costSIMD = total;
+                            else
+                                n->costSISD = total;
+                        }
+
+                        llvm::errs() << "  => Final for " << op->getName()
+                                     << ": SIMD=" << n->costSIMD
+                                     << ", SISD=" << n->costSISD << "\n\n";
+                    }
+
+                    // Backtrack
+                    llvm::DenseMap<Operation*, Mode> finalMode;
+                    // 从拓扑排序的末端（sinks）开始
+                    for (auto it = topo.rbegin(); it != topo.rend(); ++it) {
+                        Node* n = *it;
+                        Operation* op = n->op;
+
+                        if (!finalMode.count(op)) {
+                            // 如果是 sink (没有出边在 graph 中), 基于自身成本决定
+                            if (n->outEdges.empty()) {
+                                finalMode[op] = (n->costSIMD <= n->costSISD ? Mode::SIMD : Mode::SISD);
+                            } else {
+                                // 否则, 它已经被后继节点设置过了
+                                // 如果图断开了, 这里做个保险
+                                if (!finalMode.count(op)) {
+                                    finalMode[op] = (n->costSIMD <= n->costSISD ? Mode::SIMD : Mode::SISD);
+                                }
+                            }
+                        }
+
+                        Mode cm = finalMode[op];
+                        n->chosenMode = cm;
+
+                        // 为前驱节点选择模式
+                        for (Edge* e : n->inEdges) {
+                            Node* pnode = nodes[e->producer].get();
+                            double cSIMD = pnode->costSIMD +
+                                           costModel.costCast(Mode::SIMD, cm, e->val);
+                            double cSISD = pnode->costSISD +
+                                           costModel.costCast(Mode::SISD, cm, e->val);
+                            Mode nm = (cSIMD <= cSISD ? Mode::SIMD : Mode::SISD);
+
+                            // 在回溯时设置前驱节点的模式
+                            finalMode[pnode->op] = nm;
+                        }
+                    }
+
+                    llvm::errs() << "=== Mode selection for " << func.getName() << " ===\n";
+                    for (Node* n : topo) {
+                        llvm::errs() << "Op " << n->op->getName()
+                                     << " SIMD=" << n->costSIMD
+                                     << " SISD=" << n->costSISD
+                                     << " chosen="
+                                     << (n->chosenMode == Mode::SIMD ? "SIMD" : "SISD")
+                                     << "\n";
+                    }
+
+                    // Rewrite IR
+                    IRRewriter rewriter(&getContext());
+
+                    // [核心改变 1] 使用 Map 记录旧值到新值的映射
+                    // 这样我们就不需要依赖 IR 中旧节点的连线，而是直接用新节点构建新图
+                    llvm::DenseMap<Value, Value> valueMapping;
+
+                    // 按拓扑顺序处理（从源头到终点）
+                    for (Node* n : topo) {
+                        Operation* op = n->op;
+                        Mode targetMode = n->chosenMode;
+
+                        rewriter.setInsertionPoint(op);  // 在旧 Op 旁边插入新 Op
+
+                        // [核心改变 2] 准备新 Op 的输入参数
+                        SmallVector<Value, 4> newOperands;
+                        for (Value oldOperand : op->getOperands()) {
+                            // 1. 尝试从 Map 中获取已经生成的新值
+                            //    如果是函数参数或常量(不在topo图中)，lookup 会返回 null，此时用原值
+                            Value mappedVal = valueMapping.lookup(oldOperand);
+                            if (!mappedVal)
+                                mappedVal = oldOperand;
+
+                            // 2. 检查是否需要 Cast
+                            //    这是避免生成多余 Cast 的关键！我们比较的是 "mappedVal" 的现有类型和 "targetMode"
+                            Value finalVal = mappedVal;
+                            Type currentTy = mappedVal.getType();
+
+                            // 如果当前手里的值是 SIMD，但目标节点选了 SISD -> 插入 Cast to SISD
+                            if (auto t = dyn_cast<simd::SIMDCipherType>(currentTy)) {
+                                if (targetMode == Mode::SISD) {
+                                    auto targetTy = sisd::SISDCipherType::get(
+                                        op->getContext(), t.getPlaintextCount(), t.getElementType());
+                                    finalVal = rewriter.create<simd::SIMDCastSIMDCipherToSISDCipherOp>(
+                                        op->getLoc(), targetTy, mappedVal);
+                                }
+                            }
+                            // 如果当前手里的值是 SISD，但目标节点选了 SIMD -> 插入 Cast to SIMD
+                            else if (auto t = dyn_cast<sisd::SISDCipherType>(currentTy)) {
+                                if (targetMode == Mode::SIMD) {
+                                    // 默认 level 1，如果能推断则用推断
+                                    int64_t level = 1;
+                                    // 尝试从旧 Op 的结果类型推断 level (如果旧 Op 是 SIMD)
+                                    if (auto resSimd = dyn_cast<simd::SIMDCipherType>(op->getResult(0).getType()))
+                                        level = resSimd.getLevel();
+
+                                    auto targetTy = simd::SIMDCipherType::get(
+                                        op->getContext(), level, t.getPlaintextCount(), t.getElementType());
+                                    finalVal = rewriter.create<sisd::SISDCastSISDCipherToSIMDCipherOp>(
+                                        op->getLoc(), targetTy, mappedVal);
+                                }
+                            }
+                            // 如果类型匹配 (例如 SISD -> SISD)，什么都不做，直接通过！
+
+                            newOperands.push_back(finalVal);
+                        }
+
+                        // [核心改变 3] 创建新 Op
+                        // 此时 newOperands 里已经装好了正确类型的值（可能是直连的 SISD 值）
+                        Operation* newOp = nullptr;
+
+                        if (isa<simd::SIMDMinOp, sisd::SISDMinOp>(op)) {
+                            if (targetMode == Mode::SISD) {
+                                auto oldTy = cast<simd::SIMDCipherType>(op->getResult(0).getType());
+                                auto newTy = sisd::SISDCipherType::get(op->getContext(), oldTy.getPlaintextCount(), oldTy.getElementType());
+                                newOp = rewriter.create<sisd::SISDMinOp>(op->getLoc(), newTy, newOperands[0]);
+                            } else {
+                                // 这里处理 SIMD 模式 (可能是原样重建，也可能是 SISD->SIMD 变过来的)
+                                // 简单起见，如果类型没变，我们可以复用旧 Op (但这需要特殊处理)，
+                                // 为了统一逻辑，建议重新创建 SIMD Op
+                                auto resTy = op->getResult(0).getType();  // 保持原类型
+                                newOp = rewriter.create<simd::SIMDMinOp>(op->getLoc(), resTy, newOperands[0]);
+                            }
+                        } else if (isa<simd::SIMDSubOp, sisd::SISDSubOp>(op)) {
+                            if (targetMode == Mode::SISD) {
+                                auto oldTy = cast<simd::SIMDCipherType>(op->getResult(0).getType());
+                                auto newTy = sisd::SISDCipherType::get(op->getContext(), oldTy.getPlaintextCount(), oldTy.getElementType());
+                                newOp = rewriter.create<sisd::SISDSubOp>(op->getLoc(), newTy, newOperands[0], newOperands[1]);
+                            } else {
+                                newOp = rewriter.create<simd::SIMDSubOp>(op->getLoc(), op->getResult(0).getType(), newOperands[0], newOperands[1]);
+                            }
+                        } else if (isa<simd::SIMDAddOp, sisd::SISDAddOp>(op)) {
+                            if (targetMode == Mode::SISD) {
+                                auto oldTy = cast<simd::SIMDCipherType>(op->getResult(0).getType());
+                                auto newTy = sisd::SISDCipherType::get(op->getContext(), oldTy.getPlaintextCount(), oldTy.getElementType());
+                                newOp = rewriter.create<sisd::SISDAddOp>(op->getLoc(), newTy, newOperands[0], newOperands[1]);
+                            } else {
+                                newOp = rewriter.create<simd::SIMDAddOp>(op->getLoc(), op->getResult(0).getType(), newOperands[0], newOperands[1]);
+                            }
+                        } else if (isa<simd::SIMDDecryptOp, sisd::SISDDecryptOp>(op)) {
+                            if (targetMode == Mode::SISD) {
+                                // 此时 newOperands[0] 已经是 sisd 类型了 (因为上一步检查过不需要 Cast)
+                                newOp = rewriter.create<sisd::SISDDecryptOp>(op->getLoc(), op->getResultTypes(), newOperands[0]);
+                            } else {
+                                newOp = rewriter.create<simd::SIMDDecryptOp>(op->getLoc(), op->getResultTypes(), newOperands[0]);
+                            }
+                        }
+                        // 处理其他 Op (Encrypt, Mult 等) ...
+                        // 如果没有匹配到 specific logic, 且模式为 SIMD (原样)，我们需要克隆它并连接新操作数
+                        // 为了代码简洁，你可以为每个支持的 Op 写上面的 if/else
+                        else if (targetMode == Mode::SIMD) {
+                            // 默认处理：如果还是 SIMD，克隆原 Op 但使用新操作数
+                            // 注意：clone 默认用旧操作数，所以最好还是 create
+                            if (isa<simd::SIMDEncryptOp>(op)) {
+                                newOp = rewriter.create<simd::SIMDEncryptOp>(op->getLoc(), op->getResultTypes(), newOperands[0]);
+                            } else if (isa<simd::SIMDMultOp>(op)) {
+                                newOp = rewriter.create<simd::SIMDMultOp>(op->getLoc(), op->getResultTypes(), newOperands[0], newOperands[1]);
+                            }
+                        }
+
+                        // [核心改变 4] 更新映射，但不立即替换旧 Op
+                        if (newOp) {
+                            valueMapping[op->getResult(0)] = newOp->getResult(0);
+                        } else {
+                            // 如果 Op 没被处理（比如不支持的 Op），保持原样
+                            // 但为了保证链条不断，如果输入被改了，这里可能会断。
+                            // 假设你的 topo 列表里只包含你关注的 Op，这里应该不会发生。
+                        }
+                    }
+
+                    // [核心改变 5] 最后统一替换并删除旧节点
+                    // 必须反向遍历，先替换 sink 节点，这样 replaceOp 才能正确处理外部引用 (如 printf)
+                    for (auto it = topo.rbegin(); it != topo.rend(); ++it) {
+                        Operation* oldOp = (*it)->op;
+                        if (valueMapping.count(oldOp->getResult(0))) {
+                            Value newVal = valueMapping[oldOp->getResult(0)];
+                            rewriter.replaceOp(oldOp, newVal);
+                        }
+                    }
+                }
+            }
+        };
+    }  // namespace
+
+}  // namespace mlir::libra::mdsel

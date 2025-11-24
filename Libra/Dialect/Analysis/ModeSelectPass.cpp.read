@@ -1,0 +1,524 @@
+#include "mlir/Dialect/Func/IR/FuncOps.h"
+#include "mlir/IR/Builders.h"
+#include "mlir/IR/PatternMatch.h"
+#include "mlir/Pass/Pass.h"
+#include "mlir/Transforms/GreedyPatternRewriteDriver.h"
+#include "mlir/Dialect/MemRef/IR/MemRef.h"
+#include "mlir/Dialect/Arith/IR/Arith.h"
+
+#include "llvm/ADT/DenseMap.h"
+#include "llvm/ADT/StringMap.h"
+#include "llvm/Support/JSON.h"
+#include "llvm/Support/raw_ostream.h"
+#include "llvm/Support/MemoryBuffer.h"
+
+#include "ModeSelectPass.h"
+#include "SIMDOps.h"
+#include "SISDOps.h"
+
+#include "SIMDCommon.h"
+
+#include <algorithm>
+#include <limits>
+
+using namespace mlir;
+using namespace mlir::libra;
+
+namespace mlir::libra::mdsel {
+
+#define GEN_PASS_DEF_CONVERTTOMDSELPASS
+#include "ModeSelectPass.h.inc"
+
+    namespace {
+
+        enum class Mode { SIMD,
+                          SISD };
+
+        /// ============================================================================
+        /// [Cost Model]
+        /// 负责从 JSON 文件加载硬件指令的延迟/吞吐数据。
+        /// 它是 DP 算法计算开销的基础（Oracle）。
+        /// ============================================================================
+        struct CostModel {
+            llvm::StringMap<llvm::DenseMap<int64_t, double>> costTable;
+
+            CostModel(StringRef jsonFilename) {
+                auto fileOrErr = llvm::MemoryBuffer::getFile(jsonFilename);
+                if (auto ec = fileOrErr.getError()) {
+                    llvm::errs() << "Error: cannot open cost model: " << jsonFilename
+                                 << ": " << ec.message() << "\n";
+                    return;
+                }
+                std::unique_ptr<llvm::MemoryBuffer> fileBuffer = std::move(*fileOrErr);
+                llvm::Expected<llvm::json::Value> rootOrErr =
+                    llvm::json::parse(fileBuffer->getBuffer());
+                if (!rootOrErr) {
+                    llvm::errs() << "Error parsing JSON: "
+                                 << llvm::toString(rootOrErr.takeError()) << "\n";
+                    return;
+                }
+                auto* obj = rootOrErr->getAsObject();
+                if (!obj)
+                    return;
+                auto* costs = obj->getObject("costs");
+                if (!costs)
+                    return;
+                for (auto& modePair : *costs) {
+                    llvm::StringRef mode = modePair.first;
+                    auto* modeObj = modePair.second.getAsObject();
+                    if (!modeObj)
+                        continue;
+                    for (auto& opPair : *modeObj) {
+                        llvm::StringRef opname = opPair.first;
+                        auto* opObj = opPair.second.getAsObject();
+                        if (!opObj)
+                            continue;
+                        if (auto* lat = opObj->getObject("latency")) {
+                            std::string key = (mode + "." + opname).str();
+                            auto& tbl = costTable[key];
+                            for (auto& kv : *lat) {
+                                llvm::StringRef keyStr = kv.first;
+                                long long idx = 0;
+                                if (keyStr.getAsInteger(10, idx))
+                                    continue;
+                                if (auto num = kv.second.getAsNumber())
+                                    tbl[idx] = *num;
+                            }
+                        }
+                    }
+                }
+            }
+
+            double lookup(StringRef key, int64_t idx) const {
+                auto it = costTable.find(key);
+                if (it == costTable.end())
+                    return std::numeric_limits<double>::infinity();
+                auto jt = it->second.find(idx);
+                if (jt == it->second.end())
+                    return std::numeric_limits<double>::infinity();
+                return jt->second;
+            }
+
+            // 计算特定算子在特定模式下的执行成本
+            double costOp(Operation* op, Mode mode) const {
+                if (!isa<simd::SIMDSubOp, simd::SIMDMultOp, simd::SIMDMinOp,
+                         sisd::SISDSubOp, sisd::SISDMinOp,
+                         simd::SIMDAddOp, sisd::SISDAddOp,
+                         simd::SIMDEncryptOp, simd::SIMDDecryptOp,
+                         sisd::SISDEncryptOp, sisd::SISDDecryptOp>(op))
+                    return 0.0;
+
+                StringRef modeName = (mode == Mode::SIMD ? "simd" : "sisd");
+                std::string opName;
+                if (isa<simd::SIMDSubOp, sisd::SISDSubOp>(op))
+                    opName = "sub";
+                else if (isa<simd::SIMDAddOp, sisd::SISDAddOp>(op))
+                    opName = "add";
+                else if (isa<simd::SIMDMultOp>(op))
+                    opName = "mult";
+                else if (isa<simd::SIMDMinOp, sisd::SISDMinOp>(op))
+                    opName = "min";
+                else if (isa<simd::SIMDEncryptOp, sisd::SISDEncryptOp>(op))
+                    opName = "encrypt";
+                else if (isa<simd::SIMDDecryptOp, sisd::SISDDecryptOp>(op))
+                    opName = "decrypt";
+                else
+                    return 0.0;
+
+                int64_t key = 1;
+                if (op->getNumOperands() == 0) {
+                    llvm::errs()
+                        << "[COSTOP] Warning: Op " << op->getName()
+                        << " has 0 operands. Using default key=1.\n";
+                } else {
+                    Type inTy = op->getOperand(0).getType();
+
+                    if (mode == Mode::SIMD) {
+                        if (auto t = dyn_cast<simd::SIMDCipherType>(inTy)) {
+                            key = t.getLevel();
+                        }
+                    } else {
+                        if (auto t = dyn_cast<simd::SIMDCipherType>(inTy)) {
+                            key = t.getPlaintextCount();
+                        } else if (auto t = dyn_cast<sisd::SISDCipherType>(inTy)) {
+                            key = t.getPlaintextCount();
+                        }
+                    }
+                }
+
+                double c = lookup((modeName + "." + opName).str(), key);
+
+                llvm::errs() << "[COSTOP] op=" << op->getName()
+                             << " mode=" << modeName
+                             << " opName=" << opName
+                             << " key=" << key
+                             << " cost=" << c << "\n";
+
+                return c;
+            }
+
+            // 计算模式转换（Cast）的成本
+            // 这里的逻辑直接决定了算法是否倾向于切换模式
+            double costCast(Mode from, Mode to, Value v) const {
+                if (from == to)
+                    return 0.0;
+
+                std::string key = (from == Mode::SIMD ? "simd.cast_to_sisd"
+                                                      : "sisd.cast_to_simd");
+                int64_t lvl = 1;
+                Type vTy = v.getType();
+
+                if (from == Mode::SIMD) {
+                    if (auto t = dyn_cast<simd::SIMDCipherType>(vTy))
+                        lvl = t.getPlaintextCount();
+                } else {
+                    if (auto t = dyn_cast<sisd::SISDCipherType>(vTy))
+                        lvl = t.getPlaintextCount();
+                }
+
+                double c = lookup(key, lvl);
+                llvm::errs() << "[COSTCAST] from=" << (from == Mode::SIMD ? "SIMD" : "SISD")
+                             << " to=" << (to == Mode::SIMD ? "SIMD" : "SISD")
+                             << " key=" << key << " lvl=" << lvl
+                             << " cost=" << c << "\n";
+                if (!std::isfinite(c))
+                    return 10000.0; // 惩罚因子：如果查不到成本，尽量避免转换
+                return c;
+            }
+
+            // 判断算子在特定模式下是否可行
+            // 例如：Mult 操作可能只能在 SIMD 硬件上执行
+            bool feasible(Operation* op, Mode mode) const {
+                if (isa<simd::SIMDMultOp>(op))
+                    return mode == Mode::SIMD;
+
+                return true;
+            }
+        };
+
+        /// ============================================================================
+        /// [DAG Representation]
+        /// 用于构建依赖图，以便进行拓扑排序和 DP 计算
+        /// ============================================================================
+        struct Edge {
+            Operation* producer;
+            Operation* consumer;
+            Value val;
+        };
+
+        struct Node {
+            Operation* op;
+            SmallVector<Edge*, 4> inEdges;
+            SmallVector<Edge*, 4> outEdges;
+            
+            // DP 状态值：记录到达该节点并以特定模式执行的最小累积成本
+            double costSIMD = std::numeric_limits<double>::infinity();
+            double costSISD = std::numeric_limits<double>::infinity();
+            
+            // 回溯决策结果
+            Mode chosenMode = Mode::SIMD;
+        };
+
+        /// ============================================================================
+        /// [Main Pass]
+        /// 1. 构建图 -> 2. 拓扑排序 -> 3. DP 成本计算 -> 4. 模式选择 -> 5. 图重写
+        /// ============================================================================
+        class ConvertToModeSelectIR
+            : public impl::ConvertToMDSELPassBase<ConvertToModeSelectIR> {
+        public:
+            using impl::ConvertToMDSELPassBase<ConvertToModeSelectIR>::ConvertToMDSELPassBase;
+
+            StringRef getOptionFilePath() {
+                return "/mnt/data0/home/syt/Libra/Libra/Dialect/Analysis/cost_table.json";
+            }
+
+            void runOnOperation() override {
+                ModuleOp module = getOperation();
+                CostModel costModel(getOptionFilePath());
+
+                for (func::FuncOp func : module.getOps<func::FuncOp>()) {
+                    llvm::DenseMap<Operation*, std::unique_ptr<Node>> nodes;
+                    SmallVector<Node*, 64> topo;
+                    std::vector<std::unique_ptr<Edge>> allEdges;
+
+                    // Step 1: 提取子图（Subgraph Extraction）
+                    // 仅为我们关心的 Cipher 运算算子建立节点
+                    func.walk([&](Operation* op) {
+                        if (isa<simd::SIMDSubOp, simd::SIMDMultOp, simd::SIMDMinOp,
+                                simd::SIMDEncryptOp, simd::SIMDDecryptOp,
+                                sisd::SISDSubOp, sisd::SISDMinOp,
+                                sisd::SISDEncryptOp, sisd::SISDDecryptOp,
+                                simd::SIMDAddOp, sisd::SISDAddOp>(op)) {
+                            auto n = std::make_unique<Node>();
+                            n->op = op;
+                            nodes[op] = std::move(n);
+                        }
+                    });
+
+                    // Step 2: 构建边（Edge Construction）
+                    for (auto& p : nodes) {
+                        Operation* op = p.first;
+                        Node* node = p.second.get();
+                        for (Value v : op->getOperands()) {
+                            if (Operation* def = v.getDefiningOp()) {
+                                if (nodes.count(def)) {
+                                    allEdges.push_back(std::make_unique<Edge>(Edge{def, op, v}));
+                                    Edge* e = allEdges.back().get();
+                                    node->inEdges.push_back(e);
+                                    nodes[def]->outEdges.push_back(e);
+                                }
+                            }
+                        }
+                    }
+
+                    // Step 3: 拓扑排序（Topological Sort）
+                    // 确保我们在计算当前节点成本时，其所有前驱节点的成本已知
+                    llvm::DenseMap<Operation*, int> indeg;
+                    SmallVector<Operation*, 64> q;
+
+                    for (auto& p : nodes) {
+                        Operation* op = p.first;
+                        int cnt = p.second->inEdges.size();
+                        indeg[op] = cnt;
+                        if (cnt == 0)
+                            q.push_back(op);
+                    }
+
+                    while (!q.empty()) {
+                        Operation* op = q.pop_back_val();
+                        if (!nodes.count(op))
+                            continue;
+                        topo.push_back(nodes[op].get());
+                        for (Edge* e : nodes[op]->outEdges) {
+                            indeg[e->consumer]--;
+                            if (indeg[e->consumer] == 0)
+                                q.push_back(e->consumer);
+                        }
+                    }
+
+                    // Step 4: 动态规划（DP Forward Pass）
+                    // 核心逻辑：Cost(Node, Mode) = OpCost(Node, Mode) + max(InputCost)
+                    // max() 表示我们关注的是关键路径延迟（Latency）
+                    for (Node* n : topo) {
+                        Operation* op = n->op;
+                        llvm::errs() << "[DP-FWD] Evaluating node: " << op->getName() << "\n";
+
+                        for (Mode m : {Mode::SIMD, Mode::SISD}) {
+                            if (!costModel.feasible(op, m)) {
+                                llvm::errs() << "  Mode " << (m == Mode::SIMD ? "SIMD" : "SISD")
+                                             << " not feasible for " << op->getName() << "\n";
+                                continue;
+                            }
+
+                            double inCost = 0.0;
+                            // 遍历所有入边，计算前驱到达当前模式 m 所需的最小代价
+                            for (Edge* e : n->inEdges) {
+                                Node* pnode = nodes[e->producer].get();
+
+                                // 状态转移：前驱可能是 SIMD 也可能是 SISD
+                                // 无论前驱是什么，都要加上转换到当前模式 m 的 Cast 成本
+                                double costFromSIMD = pnode->costSIMD +
+                                                      costModel.costCast(Mode::SIMD, m, e->val);
+                                double costFromSISD = pnode->costSISD +
+                                                      costModel.costCast(Mode::SISD, m, e->val);
+
+                                // 选择前驱到当前节点的最佳路径
+                                double bestPredCost = std::min(costFromSIMD, costFromSISD);
+
+                                llvm::errs() << "    Edge from " << pnode->op->getName()
+                                             << " to " << op->getName()
+                                             << " [pathSIMD=" << costFromSIMD
+                                             << " pathSISD=" << costFromSISD
+                                             << " best=" << bestPredCost << "]\n";
+
+                                // 关键路径计算：取所有输入路径中的最大值
+                                inCost = std::max(inCost, bestPredCost);
+                            }
+
+                            double nodeC = costModel.costOp(op, m);
+                            double total = inCost + nodeC;
+
+                            llvm::errs() << "  Mode " << (m == Mode::SIMD ? "SIMD" : "SISD")
+                                         << " -> inCost=" << inCost
+                                         << ", opCost=" << nodeC
+                                         << ", total=" << total << "\n";
+
+                            if (m == Mode::SIMD)
+                                n->costSIMD = total;
+                            else
+                                n->costSISD = total;
+                        }
+
+                        llvm::errs() << "  => Final for " << op->getName()
+                                     << ": SIMD=" << n->costSIMD
+                                     << ", SISD=" << n->costSISD << "\n\n";
+                    }
+
+                    // Step 5: 决策回溯（Backtracking / Decision Making）
+                    // 根据 DP 计算的结果，为每个节点敲定最终的 ChosenMode
+                    llvm::DenseMap<Operation*, Mode> finalMode;
+                    
+                    // 从汇点（Sink）反向遍历到源点
+                    for (auto it = topo.rbegin(); it != topo.rend(); ++it) {
+                        Node* n = *it;
+                        Operation* op = n->op;
+
+                        if (!finalMode.count(op)) {
+                            // 如果是图中无后继的节点，直接选择成本最低的模式
+                            if (n->outEdges.empty()) {
+                                finalMode[op] = (n->costSIMD <= n->costSISD ? Mode::SIMD : Mode::SISD);
+                            } else {
+                                // 防御性编程：正常情况下非汇点已被后继决定
+                                if (!finalMode.count(op)) {
+                                    finalMode[op] = (n->costSIMD <= n->costSISD ? Mode::SIMD : Mode::SISD);
+                                }
+                            }
+                        }
+
+                        Mode cm = finalMode[op];
+                        n->chosenMode = cm;
+
+                        // 关键步骤：根据当前节点的决定，反推前驱节点的最佳模式
+                        // 这确保了全局最优解的传递
+                        for (Edge* e : n->inEdges) {
+                            Node* pnode = nodes[e->producer].get();
+                            double cSIMD = pnode->costSIMD +
+                                           costModel.costCast(Mode::SIMD, cm, e->val);
+                            double cSISD = pnode->costSISD +
+                                           costModel.costCast(Mode::SISD, cm, e->val);
+                            Mode nm = (cSIMD <= cSISD ? Mode::SIMD : Mode::SISD);
+
+                            finalMode[pnode->op] = nm;
+                        }
+                    }
+
+                    llvm::errs() << "=== Mode selection for " << func.getName() << " ===\n";
+                    for (Node* n : topo) {
+                        llvm::errs() << "Op " << n->op->getName()
+                                     << " SIMD=" << n->costSIMD
+                                     << " SISD=" << n->costSISD
+                                     << " chosen="
+                                     << (n->chosenMode == Mode::SIMD ? "SIMD" : "SISD")
+                                     << "\n";
+                    }
+
+                    // Step 6: 图重写（Graph Rewriting - Side-by-Side Strategy）
+                    // 策略：不直接修改旧图，而是根据 Decision Map 在旁边构建新节点。
+                    // 优势：避免产生多余的临时 Cast 节点，解决 "sisd -> cast -> simd -> decrypt" 问题。
+                    IRRewriter rewriter(&getContext());
+                    llvm::DenseMap<Value, Value> valueMapping; // 映射：旧值 -> 新生成的值
+
+                    for (Node* n : topo) {
+                        Operation* op = n->op;
+                        Mode targetMode = n->chosenMode;
+
+                        rewriter.setInsertionPoint(op); 
+
+                        // 6.1 准备新操作数
+                        SmallVector<Value, 4> newOperands;
+                        for (Value oldOperand : op->getOperands()) {
+                            // 尝试获取已生成的对应新值
+                            Value mappedVal = valueMapping.lookup(oldOperand);
+                            if (!mappedVal)
+                                mappedVal = oldOperand;
+
+                            Value finalVal = mappedVal;
+                            Type currentTy = mappedVal.getType();
+
+                            // 6.2 按需插入 Cast (Lazy Casting)
+                            // 只有当手里的数据类型与当前节点所需模式不匹配时，才插入转换指令
+                            
+                            // Case A: 手持 SIMD 数据 -> 目标 SISD 节点
+                            if (auto t = dyn_cast<simd::SIMDCipherType>(currentTy)) {
+                                if (targetMode == Mode::SISD) {
+                                    auto targetTy = sisd::SISDCipherType::get(
+                                        op->getContext(), t.getPlaintextCount(), t.getElementType());
+                                    finalVal = rewriter.create<simd::SIMDCastSIMDCipherToSISDCipherOp>(
+                                        op->getLoc(), targetTy, mappedVal);
+                                }
+                            }
+                            // Case B: 手持 SISD 数据 -> 目标 SIMD 节点
+                            else if (auto t = dyn_cast<sisd::SISDCipherType>(currentTy)) {
+                                if (targetMode == Mode::SIMD) {
+                                    int64_t level = 1;
+                                    // 尝试从旧 Op 类型推断 level
+                                    if (auto resSimd = dyn_cast<simd::SIMDCipherType>(op->getResult(0).getType()))
+                                        level = resSimd.getLevel();
+
+                                    auto targetTy = simd::SIMDCipherType::get(
+                                        op->getContext(), level, t.getPlaintextCount(), t.getElementType());
+                                    finalVal = rewriter.create<sisd::SISDCastSISDCipherToSIMDCipherOp>(
+                                        op->getLoc(), targetTy, mappedVal);
+                                }
+                            }
+                            // Case C: 类型匹配 (SISD->SISD 或 SIMD->SIMD) -> 直通，无开销
+
+                            newOperands.push_back(finalVal);
+                        }
+
+                        // 6.3 创建新节点
+                        // 根据 chosenMode 生成对应的 SISD 或 SIMD 算子
+                        Operation* newOp = nullptr;
+
+                        if (isa<simd::SIMDMinOp, sisd::SISDMinOp>(op)) {
+                            if (targetMode == Mode::SISD) {
+                                auto oldTy = cast<simd::SIMDCipherType>(op->getResult(0).getType());
+                                auto newTy = sisd::SISDCipherType::get(op->getContext(), oldTy.getPlaintextCount(), oldTy.getElementType());
+                                newOp = rewriter.create<sisd::SISDMinOp>(op->getLoc(), newTy, newOperands[0]);
+                            } else {
+                                auto resTy = op->getResult(0).getType();
+                                newOp = rewriter.create<simd::SIMDMinOp>(op->getLoc(), resTy, newOperands[0]);
+                            }
+                        } else if (isa<simd::SIMDSubOp, sisd::SISDSubOp>(op)) {
+                            if (targetMode == Mode::SISD) {
+                                auto oldTy = cast<simd::SIMDCipherType>(op->getResult(0).getType());
+                                auto newTy = sisd::SISDCipherType::get(op->getContext(), oldTy.getPlaintextCount(), oldTy.getElementType());
+                                newOp = rewriter.create<sisd::SISDSubOp>(op->getLoc(), newTy, newOperands[0], newOperands[1]);
+                            } else {
+                                newOp = rewriter.create<simd::SIMDSubOp>(op->getLoc(), op->getResult(0).getType(), newOperands[0], newOperands[1]);
+                            }
+                        } else if (isa<simd::SIMDAddOp, sisd::SISDAddOp>(op)) {
+                            if (targetMode == Mode::SISD) {
+                                auto oldTy = cast<simd::SIMDCipherType>(op->getResult(0).getType());
+                                auto newTy = sisd::SISDCipherType::get(op->getContext(), oldTy.getPlaintextCount(), oldTy.getElementType());
+                                newOp = rewriter.create<sisd::SISDAddOp>(op->getLoc(), newTy, newOperands[0], newOperands[1]);
+                            } else {
+                                newOp = rewriter.create<simd::SIMDAddOp>(op->getLoc(), op->getResult(0).getType(), newOperands[0], newOperands[1]);
+                            }
+                        } else if (isa<simd::SIMDDecryptOp, sisd::SISDDecryptOp>(op)) {
+                            // Decrypt 比较特殊，不需要 Cast 类型来推断输出，直接用操作数即可
+                            if (targetMode == Mode::SISD) {
+                                newOp = rewriter.create<sisd::SISDDecryptOp>(op->getLoc(), op->getResultTypes(), newOperands[0]);
+                            } else {
+                                newOp = rewriter.create<simd::SIMDDecryptOp>(op->getLoc(), op->getResultTypes(), newOperands[0]);
+                            }
+                        } else if (targetMode == Mode::SIMD) {
+                            // 默认处理 SIMD 专用算子 (Mult, Encrypt 等)
+                            if (isa<simd::SIMDEncryptOp>(op)) {
+                                newOp = rewriter.create<simd::SIMDEncryptOp>(op->getLoc(), op->getResultTypes(), newOperands[0]);
+                            } else if (isa<simd::SIMDMultOp>(op)) {
+                                newOp = rewriter.create<simd::SIMDMultOp>(op->getLoc(), op->getResultTypes(), newOperands[0], newOperands[1]);
+                            }
+                        }
+
+                        // 6.4 更新映射表
+                        if (newOp) {
+                            valueMapping[op->getResult(0)] = newOp->getResult(0);
+                        }
+                    }
+
+                    // Step 7: 统一替换与清理 (Final Replacement)
+                    // 反向遍历，用新生成的值替换旧图中所有引用，完成切换
+                    for (auto it = topo.rbegin(); it != topo.rend(); ++it) {
+                        Operation* oldOp = (*it)->op;
+                        if (valueMapping.count(oldOp->getResult(0))) {
+                            Value newVal = valueMapping[oldOp->getResult(0)];
+                            rewriter.replaceOp(oldOp, newVal);
+                        }
+                    }
+                }
+            }
+        };
+    }  // namespace
+
+}  // namespace mlir::libra::mdsel
