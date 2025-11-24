@@ -22,6 +22,8 @@
 #include <vector>
 #include <memory>
 #include <cmath>
+#include <tuple>
+#include <string>
 
 using namespace mlir;
 using namespace mlir::libra;
@@ -33,27 +35,72 @@ namespace mlir::libra::mdsel {
 
     namespace {
 
+// ============================================================
+// [Debug Switch]
+// ============================================================
+#define MDSEL_DEBUG 1
+
+#if MDSEL_DEBUG
+#define DBG(msg) llvm::errs() << "[ModeSel] " << msg
+#else
+#define DBG(msg)
+#endif
+
         // --- Constants ---
-        constexpr int MAX_SIMD_LEVEL = simd::DEFAULT_LEVEL;
-        constexpr int STATE_SISD = MAX_SIMD_LEVEL + 1;
-        constexpr int NUM_STATES = STATE_SISD + 1;
+        constexpr int MAX_SIMD_LEVEL = 29;
         constexpr double INF_COST = 1e15;
 
-        // --- Enums ---
-        enum class Mode { SIMD,
-                          SISD };
+        // --- NodeState ---
+        struct NodeState {
+            enum class Mode { SIMD,
+                              SISD };
+            Mode mode;
+            int level;
+            int scale;
+            int basis;
+
+            static NodeState createSISD() { return {Mode::SISD, 0, 0, 0}; }
+            static NodeState createSIMD(int l, int s, int b) { return {Mode::SIMD, l, s, b}; }
+
+            bool isSISD() const { return mode == Mode::SISD; }
+            bool isSIMD() const { return mode == Mode::SIMD; }
+
+            static constexpr int SIMD_STATE_COUNT = (MAX_SIMD_LEVEL + 1) * 4;
+            static constexpr int TOTAL_STATES = SIMD_STATE_COUNT + 1;
+
+            int toIndex() const {
+                if (mode == Mode::SISD)
+                    return SIMD_STATE_COUNT;
+                return level * 4 + (scale - 1) * 2 + (basis - 2);
+            }
+
+            static NodeState fromIndex(int idx) {
+                if (idx == SIMD_STATE_COUNT)
+                    return createSISD();
+                int b = (idx % 2) + 2;
+                int s = ((idx / 2) % 2) + 1;
+                int l = idx / 4;
+                return createSIMD(l, s, b);
+            }
+
+            std::string toString() const {
+                if (isSISD())
+                    return "SISD";
+                return "SIMD(L=" + std::to_string(level) +
+                       ", S=" + (scale == 1 ? "Clean" : "Dirty") +
+                       ", B=" + (basis == 2 ? "Std" : "Ext") + ")";
+            }
+        };
 
         // --- Cost Model ---
         struct CostModel {
             llvm::StringMap<llvm::DenseMap<int64_t, double>> costTable;
 
             CostModel(StringRef jsonFilename) {
-                llvm::errs() << "[CostModel] Loading from: " << jsonFilename << "\n";
+                DBG("Loading CostModel from: " << jsonFilename << "\n");
                 auto fileOrErr = llvm::MemoryBuffer::getFile(jsonFilename);
-                if (auto ec = fileOrErr.getError()) {
-                    llvm::errs() << "[Error] Cannot open cost model: " << jsonFilename << "\n";
+                if (auto ec = fileOrErr.getError())
                     return;
-                }
                 std::unique_ptr<llvm::MemoryBuffer> fileBuffer = std::move(*fileOrErr);
                 llvm::Expected<llvm::json::Value> rootOrErr = llvm::json::parse(fileBuffer->getBuffer());
                 if (!rootOrErr)
@@ -65,7 +112,6 @@ namespace mlir::libra::mdsel {
                 if (!costs)
                     return;
 
-                int entryCount = 0;
                 for (auto& modePair : *costs) {
                     StringRef mode = modePair.first;
                     auto* modeObj = modePair.second.getAsObject();
@@ -82,13 +128,11 @@ namespace mlir::libra::mdsel {
                                 long long idx = 0;
                                 if (!llvm::StringRef(kv.first).getAsInteger(10, idx) && kv.second.getAsNumber()) {
                                     costTable[key][idx] = *kv.second.getAsNumber();
-                                    entryCount++;
                                 }
                             }
                         }
                     }
                 }
-                llvm::errs() << "[CostModel] Loaded " << entryCount << " entries.\n";
             }
 
             double lookup(StringRef key, int64_t idx) const {
@@ -101,10 +145,9 @@ namespace mlir::libra::mdsel {
                 return jt->second;
             }
 
-            double getBootCost(int64_t targetLevel) const {
-                return lookup("simd.boot", targetLevel);
-            }
-
+            double getBootCost(int64_t targetLevel) const { return lookup("simd.boot", targetLevel); }
+            double getRescaleCost(int64_t level) const { return lookup("simd.rescale", level); }
+            double getRelinCost(int64_t level) const { return lookup("simd.relinearize", level); }
             double getCastCost(bool fromSimd, bool toSimd, int64_t dim) const {
                 if (fromSimd == toSimd)
                     return 0.0;
@@ -113,7 +156,6 @@ namespace mlir::libra::mdsel {
             }
         };
 
-        // --- Graph Structures ---
         struct Edge {
             Operation* producer;
             Operation* consumer;
@@ -127,26 +169,17 @@ namespace mlir::libra::mdsel {
             int vectorCount = -1;
             std::vector<double> dpCost;
             int chosenOutputState = -1;
-
-            Node() : dpCost(NUM_STATES, INF_COST) {}
+            Node() : dpCost(NodeState::TOTAL_STATES, INF_COST) {}
         };
 
-        // --- Main Pass ---
         class ConvertToModeSelectIR : public impl::ConvertToMDSELPassBase<ConvertToModeSelectIR> {
         public:
             using impl::ConvertToMDSELPassBase<ConvertToModeSelectIR>::ConvertToMDSELPassBase;
 
-            StringRef getOptionFilePath() {
-                return "/mnt/data0/home/syt/Libra/Libra/Dialect/Analysis/cost_table.json";
-            }
+            StringRef getOptionFilePath() { return "/mnt/data0/home/syt/Libra/Libra/Dialect/Analysis/cost_table.json"; }
 
-            int getLevelConsumption(Operation* op) {
-                if (isa<simd::SIMDMultOp>(op))
-                    return 1;
-                if (isa<simd::SIMDMinOp, sisd::SISDMinOp>(op))
-                    return 3;
-                return 0;
-            }
+            bool isSimdMult(Operation* op) { return isa<simd::SIMDMultOp>(op); }
+            bool isSimdAddSub(Operation* op) { return isa<simd::SIMDAddOp, simd::SIMDSubOp>(op); }
 
             std::string getOpKeyName(Operation* op, bool isSimd) {
                 if (isSimd) {
@@ -169,72 +202,124 @@ namespace mlir::libra::mdsel {
                 return "";
             }
 
-            // ----------------------------------------------------------------
-            // Phase 1: Shape Inference
-            // ----------------------------------------------------------------
-            void runShapeInference(const std::vector<Node*>& topo,
-                                   const llvm::DenseMap<Operation*, std::unique_ptr<Node>>& nodeMap) {
-                llvm::errs() << "\n=== [Phase 1] Shape Inference ===\n";
-                for (Node* n : topo) {
-                    // [修改 1] 初始化为 -1，表示尚未确定
-                    int64_t currentCount = -1;
+            std::pair<bool, NodeState> mapConsumerStateToInputReq(Operation* op, const NodeState& outputState) {
+                if (outputState.isSISD())
+                    return {true, outputState};
 
-                    // [步骤 A] 尝试从父节点继承 (Propagation)
+                int L = outputState.level;
+                int S = outputState.scale;
+                int B = outputState.basis;
+
+                if (isa<simd::SIMDEncryptOp>(op)) {
+                    return {true, outputState};
+                } else if (isSimdMult(op)) {
+                    if (S == 2 && B == 3) {
+                        return {true, NodeState::createSIMD(L, 1, 2)};
+                    }
+                    return {false, NodeState()};
+                } else if (isSimdAddSub(op)) {
+                    return {true, outputState};
+                } else if (isa<simd::SIMDMinOp>(op)) {
+                    int reqInL = L + 3;
+                    if (reqInL > MAX_SIMD_LEVEL)
+                        return {false, NodeState()};
+                    return {true, NodeState::createSIMD(reqInL, S, B)};
+                } else if (isa<simd::SIMDDecryptOp>(op)) {
+                    return {true, outputState};
+                }
+                return {true, outputState};
+            }
+
+            double getTransitionCost(const NodeState& p, const NodeState& req, int64_t vecCnt, const CostModel& cm) {
+                if (p.isSISD() && req.isSISD())
+                    return 0;
+
+                if (p.isSISD() && req.isSIMD()) {
+                    if (req.scale != 1 || req.basis != 2 || req.level > 20)
+                        return INF_COST;
+                    return cm.getCastCost(false, true, vecCnt);
+                }
+
+                if (p.isSIMD() && req.isSISD()) {
+                    double cost = 0;
+                    int currLvl = p.level;
+                    if (p.basis == 3)
+                        cost += cm.getRelinCost(currLvl);
+                    if (p.scale == 2) {
+                        if (currLvl <= 0)
+                            return INF_COST;
+                        cost += cm.getRescaleCost(currLvl);
+                    }
+                    return cost + cm.getCastCost(true, false, vecCnt);
+                }
+
+                double cost = 0;
+                int currLvl = p.level;
+                int currScale = p.scale;
+                int currBasis = p.basis;
+
+                if (currBasis == 3 && req.basis == 2) {
+                    cost += cm.getRelinCost(currLvl);
+                    currBasis = 2;
+                } else if (currBasis == 2 && req.basis == 3)
+                    return INF_COST;
+
+                if (currScale == 2 && req.scale == 1) {
+                    if (currLvl <= 0)
+                        return INF_COST;
+                    cost += cm.getRescaleCost(currLvl);
+                    currLvl--;
+                    currScale = 1;
+                } else if (currScale == 1 && req.scale == 2)
+                    return INF_COST;
+
+                if (currLvl > req.level) {
+                    if (currScale != 1 || currBasis != 2)
+                        return INF_COST;
+                } else if (currLvl < req.level) {
+                    if (currScale != 1 || currBasis != 2)
+                        return INF_COST;
+                    cost += cm.getBootCost(req.level);
+                }
+                return cost;
+            }
+
+            void runShapeInference(const std::vector<Node*>& topo, const llvm::DenseMap<Operation*, std::unique_ptr<Node>>& nodeMap) {
+                DBG("\n=== [Phase 1] Shape Inference ===\n");
+                for (Node* n : topo) {
+                    int64_t currentCount = -1;
                     if (!n->inEdges.empty()) {
                         Operation* parentOp = n->inEdges[0]->producer;
                         auto it = nodeMap.find(parentOp);
-                        if (it != nodeMap.end()) {
+                        if (it != nodeMap.end())
                             currentCount = it->second->vectorCount;
-                        }
                     }
-
-                    // [步骤 B] 如果无法继承 (源节点 或 父节点不在图中)，从类型提取 (Type Analysis)
                     if (currentCount == -1) {
                         Type resTy = n->op->getResult(0).getType();
-
-                        // 检查是否为 SIMD 类型
-                        if (auto t = dyn_cast<simd::SIMDCipherType>(resTy)) {
+                        if (auto t = dyn_cast<simd::SIMDCipherType>(resTy))
                             currentCount = t.getPlaintextCount();
-                        }
-                        // [新增] 检查是否为 SISD 类型 (防止源节点是 SISD)
-                        else if (auto t = dyn_cast<sisd::SISDCipherType>(resTy)) {
+                        else if (auto t = dyn_cast<sisd::SISDCipherType>(resTy))
                             currentCount = t.getPlaintextCount();
-                        }
                     }
-
-                    // [步骤 C] 兜底处理 (Safety Fallback)
-                    // 如果既没有父节点，类型里也读不到 (即 currentCount 还是 -1)，则设为默认值 8
-                    if (currentCount == -1) {
-                        llvm::errs() << "[Warning] Shape inference failed for " << n->op->getName() << ", defaulting to 8.\n";
+                    if (currentCount == -1)
                         currentCount = 8;
-                    }
-
-                    // [步骤 D] 算子特殊逻辑 (Op Specific Logic)
-                    if (isa<simd::SIMDMinOp, sisd::SISDMinOp>(n->op)) {
+                    if (isa<simd::SIMDMinOp, sisd::SISDMinOp>(n->op))
                         n->vectorCount = 1;
-                    } else {
+                    else
                         n->vectorCount = currentCount;
-                    }
-
-                    llvm::errs() << "Node: " << n->op->getName() << " | VectorCount: " << n->vectorCount << "\n";
+                    DBG("Node: " << n->op->getName() << " -> Count=" << n->vectorCount << "\n");
                 }
             }
 
-            // ----------------------------------------------------------------
-            // Main Run
-            // ----------------------------------------------------------------
             void runOnOperation() override {
                 ModuleOp module = getOperation();
                 CostModel costModel(getOptionFilePath());
-                // double bootCost = costModel.getBootCost();
 
                 for (func::FuncOp func : module.getOps<func::FuncOp>()) {
-                    llvm::errs() << "\nProcessing Function: " << func.getName() << "\n";
+                    DBG("\nProcessing Function: " << func.getName() << "\n");
                     llvm::DenseMap<Operation*, std::unique_ptr<Node>> nodeMap;
                     std::vector<Node*> topo;
-                    std::vector<std::unique_ptr<Edge>> allEdges;
 
-                    // 1. Build Nodes
                     func.walk([&](Operation* op) {
                         if (isa<simd::SIMDSubOp, simd::SIMDMultOp, simd::SIMDMinOp,
                                 simd::SIMDEncryptOp, simd::SIMDDecryptOp, simd::SIMDAddOp,
@@ -246,23 +331,20 @@ namespace mlir::libra::mdsel {
                         }
                     });
 
-                    // 2. Build Edges
+                    std::vector<std::unique_ptr<Edge>> allEdges;
                     for (auto& p : nodeMap) {
-                        Operation* op = p.first;
-                        Node* node = p.second.get();
-                        for (Value v : op->getOperands()) {
+                        for (Value v : p.first->getOperands()) {
                             if (Operation* def = v.getDefiningOp()) {
                                 if (nodeMap.count(def)) {
-                                    allEdges.push_back(std::make_unique<Edge>(Edge{def, op, v}));
+                                    allEdges.push_back(std::make_unique<Edge>(Edge{def, p.first, v}));
                                     Edge* e = allEdges.back().get();
-                                    node->inEdges.push_back(e);
+                                    p.second->inEdges.push_back(e);
                                     nodeMap[def]->outEdges.push_back(e);
                                 }
                             }
                         }
                     }
 
-                    // 3. Topo Sort
                     llvm::DenseMap<Operation*, int> indeg;
                     SmallVector<Operation*, 64> stack;
                     for (auto& p : nodeMap) {
@@ -281,386 +363,132 @@ namespace mlir::libra::mdsel {
                         }
                     }
 
-                    llvm::errs() << "Topo Sort Order:\n";
-                    for (auto* n : topo) llvm::errs() << "  -> " << n->op->getName() << "\n";
-
-                    // 4. Shape Inference
                     runShapeInference(topo, nodeMap);
 
-                    // ------------------------------------------------------------
-                    // 5. DP: Bottom-Up
-                    // ------------------------------------------------------------
-                    llvm::errs() << "\n=== [Phase 2] DP Bottom-Up ===\n";
+                    // Phase 2: DP Bottom-Up
+                    DBG("\n=== [Phase 2] DP Bottom-Up ===\n");
                     for (auto it = topo.rbegin(); it != topo.rend(); ++it) {
                         Node* u = *it;
                         Operation* op = u->op;
-                        int consume = getLevelConsumption(op);
                         int64_t vecCnt = u->vectorCount;
 
-                        llvm::errs() << "[DP] Processing " << op->getName() << " (Consume=" << consume << ")\n";
+                        DBG("[DP] Processing " << op->getName() << "\n");
+                        int validStates = 0;
 
-                        // --- A. SISD State ---
-                        bool supportsSISD = true;
-                        if (isa<simd::SIMDMultOp>(op))
-                            supportsSISD = false;
+                        for (int sIdx = 0; sIdx < NodeState::TOTAL_STATES; ++sIdx) {
+                            NodeState currState = NodeState::fromIndex(sIdx);
+                            double localCost = INF_COST;
+                            bool isValidOp = false;
 
-                        if (supportsSISD) {
+                            if (currState.isSISD()) {
+                                if (!isSimdMult(op)) {
+                                    isValidOp = true;
+                                    if (isa<simd::SIMDEncryptOp, sisd::SISDEncryptOp, simd::SIMDDecryptOp, sisd::SISDDecryptOp>(op))
+                                        localCost = 0;
+                                    else
+                                        localCost = costModel.lookup(getOpKeyName(op, false), vecCnt);
+                                }
+                            } else {  // SIMD
+                                int L = currState.level;
+                                int S = currState.scale;
+                                int B = currState.basis;
+                                std::string opKey = getOpKeyName(op, true);
+
+                                if (isa<simd::SIMDEncryptOp>(op)) {
+                                    if (S == 1 && B == 2) {
+                                        isValidOp = true;
+                                        localCost = 0;
+                                    }
+                                } else if (isSimdMult(op)) {
+                                    if (S == 2 && B == 3) {
+                                        isValidOp = true;
+                                        localCost = costModel.lookup(opKey, L);
+                                    }
+                                } else if (isSimdAddSub(op)) {
+                                    isValidOp = true;
+                                    localCost = costModel.lookup(opKey, L);
+                                } else if (isa<simd::SIMDMinOp>(op)) {
+                                    isValidOp = true;
+                                    int reqIn = L + 3;
+                                    if (reqIn <= MAX_SIMD_LEVEL)
+                                        localCost = costModel.lookup(opKey, reqIn);
+                                    else
+                                        isValidOp = false;
+                                } else if (isa<simd::SIMDDecryptOp>(op)) {
+                                    isValidOp = true;
+                                    localCost = 0;
+                                }
+                            }
+
+                            if (!isValidOp || localCost >= INF_COST)
+                                continue;
+
                             double childrenSum = 0;
                             bool possible = true;
+
                             for (Edge* e : u->outEdges) {
                                 Node* v = nodeMap[e->consumer].get();
-                                double minV = INF_COST;
-                                // Child uses SISD
-                                minV = std::min(minV, v->dpCost[STATE_SISD]);
-                                // Child uses SIMD (Cast SISD->SIMD)
-                                double castC = costModel.getCastCost(false, true, vecCnt);
-                                for (int k = 0; k <= MAX_SIMD_LEVEL; ++k) {
-                                    minV = std::min(minV, v->dpCost[k] + castC);
+                                double minChildCost = INF_COST;
+                                for (int k = 0; k < NodeState::TOTAL_STATES; ++k) {
+                                    if (v->dpCost[k] >= INF_COST)
+                                        continue;
+                                    NodeState childOutputState = NodeState::fromIndex(k);
+                                    auto [isValidMap, childInputReq] = mapConsumerStateToInputReq(v->op, childOutputState);
+                                    if (!isValidMap)
+                                        continue;
+                                    double trans = getTransitionCost(currState, childInputReq, vecCnt, costModel);
+                                    if (trans < INF_COST)
+                                        minChildCost = std::min(minChildCost, v->dpCost[k] + trans);
                                 }
-                                if (minV >= INF_COST) {
+                                if (minChildCost >= INF_COST) {
                                     possible = false;
                                     break;
                                 }
-                                childrenSum += minV;
+                                childrenSum += minChildCost;
                             }
 
                             if (possible) {
-                                double localC = 0.0;
-                                if (isa<simd::SIMDEncryptOp, sisd::SISDEncryptOp,
-                                        simd::SIMDDecryptOp, sisd::SISDDecryptOp>(op)) {
-                                    localC = 0.0;
-                                } else {
-                                    std::string key = getOpKeyName(op, false);
-                                    localC = costModel.lookup(key, vecCnt);
-                                }
-
-                                if (localC < INF_COST) {
-                                    u->dpCost[STATE_SISD] = localC + childrenSum;
-                                    llvm::errs() << "  -> SISD Cost: " << u->dpCost[STATE_SISD] << " (Local=" << localC << " Children=" << childrenSum << ")\n";
-                                }
+                                u->dpCost[sIdx] = localCost + childrenSum;
+                                validStates++;
+                                DBG("  Valid: " << currState.toString() << " | Cost=" << u->dpCost[sIdx] << "\n");
                             }
                         }
-
-                        // --- B. SIMD States ---
-                        // for (int L = 0; L <= MAX_SIMD_LEVEL; ++L) {
-                        //     double childrenSum = 0;
-                        //     bool possible = true;
-                        //     for (Edge* e : u->outEdges) {
-                        //         Node* v = nodeMap[e->consumer].get();
-                        //         double minV = INF_COST;
-                        //         // Child uses SISD
-                        //         double castToSisd = costModel.getCastCost(true, false, vecCnt);
-                        //         minV = std::min(minV, v->dpCost[STATE_SISD] + castToSisd);
-                        //         // Child uses SIMD
-                        //         for (int K = 0; K <= MAX_SIMD_LEVEL; ++K) {
-                        //             int reqIn = K + getLevelConsumption(v->op);
-                        //             if (L >= reqIn)
-                        //                 minV = std::min(minV, v->dpCost[K]);
-                        //         }
-                        //         if (minV >= INF_COST) {
-                        //             possible = false;
-                        //             break;
-                        //         }
-                        //         childrenSum += minV;
-                        //     }
-                        //     if (!possible)
-                        //         continue;
-
-                        //     if (isa<simd::SIMDEncryptOp, simd::SIMDDecryptOp>(op)) {
-                        //         u->dpCost[L] = std::min(u->dpCost[L], 0.0 + childrenSum);
-                        //     } else {
-                        //         std::string key = getOpKeyName(op, true);
-                        //         int reqInput = L + consume;
-
-                        //         // Path 1: Normal
-                        //         if (reqInput <= MAX_SIMD_LEVEL) {
-                        //             double opC = costModel.lookup(key, reqInput);
-                        //             if (opC < INF_COST) {
-                        //                 double val = opC + childrenSum;
-                        //                 if (val < u->dpCost[L])
-                        //                     u->dpCost[L] = val;
-                        //             }
-                        //         }
-
-                        //         // Path 2: Bootstrapping
-                        //         if (L <= MAX_SIMD_LEVEL - consume) {
-                        //             double opC = costModel.lookup(key, MAX_SIMD_LEVEL);
-                        //             double total = bootCost + opC + childrenSum;
-                        //             if (total < u->dpCost[L]) {
-                        //                 u->dpCost[L] = total;
-                        //                 // 仅在 debug 开启时打印，避免刷屏，这里默认打印关键层
-                        //             }
-                        //         }
-                        //     }
-                        //     // Log significant updates
-                        //     if (u->dpCost[L] < INF_COST) {
-                        //         // llvm::errs() << "  -> SIMD L=" << L << " Cost=" << u->dpCost[L] << "\n";
-                        //     }
-                        // }
-                        // --- B. SIMD States ---
-                        for (int L = 0; L <= MAX_SIMD_LEVEL; ++L) {
-                            double childrenSum = 0;
-                            bool possible = true;
-                            // ... (Children sum calculation 保持不变，复制原代码即可) ...
-                            for (Edge* e : u->outEdges) {
-                                Node* v = nodeMap[e->consumer].get();
-                                double minV = INF_COST;
-                                double castToSisd = costModel.getCastCost(true, false, vecCnt);
-                                minV = std::min(minV, v->dpCost[STATE_SISD] + castToSisd);
-                                for (int K = 0; K <= MAX_SIMD_LEVEL; ++K) {
-                                    int reqIn = K + getLevelConsumption(v->op);
-                                    if (L >= reqIn)
-                                        minV = std::min(minV, v->dpCost[K]);
-                                }
-                                if (minV >= INF_COST) {
-                                    possible = false;
-                                    break;
-                                }
-                                childrenSum += minV;
-                            }
-                            if (!possible)
-                                continue;
-
-                            if (isa<simd::SIMDEncryptOp, simd::SIMDDecryptOp>(op)) {
-                                u->dpCost[L] = std::min(u->dpCost[L], 0.0 + childrenSum);
-                            } else {
-                                std::string key = getOpKeyName(op, true);
-                                int reqInput = L + consume;
-
-                                // [关键修改] 只保留 Normal Path。
-                                // 如果 reqInput > MAX_SIMD_LEVEL，dpCost[L] 保持 INF。
-                                // Boot 的决策移交给 Phase 3 的边转换逻辑。
-                                if (reqInput <= MAX_SIMD_LEVEL) {
-                                    double opC = costModel.lookup(key, reqInput);
-                                    if (opC < INF_COST) {
-                                        double val = opC + childrenSum;
-                                        if (val < u->dpCost[L])
-                                            u->dpCost[L] = val;
-                                    }
-                                }
-                            }
-                        }
-
-                        // Print summary of valid SIMD levels
-                        llvm::errs() << "  -> Valid SIMD Levels: ";
-                        for (int k = 0; k <= MAX_SIMD_LEVEL; ++k)
-                            if (u->dpCost[k] < INF_COST)
-                                llvm::errs() << k << " ";
-                        llvm::errs() << "\n";
+                        DBG("Summary: " << op->getName() << " has " << validStates << " valid states.\n");
                     }
 
-                    // ------------------------------------------------------------
-                    // 6. Selection & Rewrite
-                    // ------------------------------------------------------------
-                    // llvm::errs() << "\n=== [Phase 3] Selection & Rewrite ===\n";
-                    // llvm::DenseMap<Value, Value> rewriteMap;
-                    // IRRewriter rewriter(&getContext());
-
-                    // for (Node* n : topo) {
-                    //     Operation* op = n->op;
-
-                    //     // 6a. Choose Best State (保持不变)
-                    //     double bestVal = INF_COST;
-                    //     int bestS = -1;
-
-                    //     for (int s = 0; s < NUM_STATES; ++s) {
-                    //         if (n->dpCost[s] >= INF_COST)
-                    //             continue;
-
-                    //         double transitionCost = 0;
-                    //         bool possible = true;
-
-                    //         for (Edge* e : n->inEdges) {
-                    //             Node* parent = nodeMap[e->producer].get();
-                    //             int pState = parent->chosenOutputState;
-                    //             double edgeC = 0;
-
-                    //             if (pState == STATE_SISD) {
-                    //                 if (s != STATE_SISD)
-                    //                     edgeC = costModel.getCastCost(false, true, n->vectorCount);
-                    //             } else {
-                    //                 if (s == STATE_SISD) {
-                    //                     edgeC = costModel.getCastCost(true, false, n->vectorCount);
-                    //                 } else {
-                    //                     int req = s + getLevelConsumption(op);
-                    //                     if (req > MAX_SIMD_LEVEL) {
-                    //                         edgeC = 0;
-                    //                     } else {
-                    //                         if (pState < req)
-                    //                             possible = false;
-                    //                     }
-                    //                 }
-                    //             }
-                    //             transitionCost += edgeC;
-                    //         }
-
-                    //         if (possible) {
-                    //             if (transitionCost + n->dpCost[s] < bestVal) {
-                    //                 bestVal = transitionCost + n->dpCost[s];
-                    //                 bestS = s;
-                    //             }
-                    //         }
-                    //     }
-
-                    //     if (bestS == -1) {
-                    //         llvm::errs() << "Fatal: No valid state found for " << op->getName() << "\n";
-                    //         return;
-                    //     }
-                    //     n->chosenOutputState = bestS;
-                    //     llvm::errs() << "Node " << op->getName() << " Chosen State: " << (bestS == STATE_SISD ? "SISD" : ("SIMD Level " + std::to_string(bestS))) << " (TotalCost=" << bestVal << ")\n";
-
-                    //     // 6b. Generate IR [核心修复部分]
-                    //     rewriter.setInsertionPoint(op);
-                    //     SmallVector<Value, 2> newOperands;
-
-                    //     // [修复] 遍历原 Op 的操作数，而不是 Edge
-                    //     for (Value oldOperand : op->getOperands()) {
-                    //         Operation* defOp = oldOperand.getDefiningOp();
-
-                    //         // 检查这个操作数是否来自我们管理的节点 (Graph Internal Edge)
-                    //         if (defOp && nodeMap.count(defOp)) {
-                    //             Node* parent = nodeMap[defOp].get();
-                    //             int pState = parent->chosenOutputState;
-
-                    //             Value incoming = rewriteMap.lookup(oldOperand);
-                    //             if (!incoming)
-                    //                 incoming = oldOperand;  // Should catch by rewriteMap ideally
-
-                    //             bool needSISD = (bestS == STATE_SISD);
-                    //             Value processed = incoming;
-
-                    //             // Handle Casts
-                    //             if (pState == STATE_SISD && !needSISD) {
-                    //                 llvm::errs() << "  [Insert] Cast SISD -> SIMD\n";
-                    //                 auto newTy = simd::SIMDCipherType::get(op->getContext(), MAX_SIMD_LEVEL, n->vectorCount, rewriter.getI64Type());
-                    //                 processed = rewriter.create<sisd::SISDCastSISDCipherToSIMDCipherOp>(op->getLoc(), newTy, processed);
-                    //             } else if (pState != STATE_SISD && needSISD) {
-                    //                 llvm::errs() << "  [Insert] Cast SIMD -> SISD\n";
-                    //                 auto newTy = sisd::SISDCipherType::get(op->getContext(), n->vectorCount, rewriter.getI64Type());
-                    //                 processed = rewriter.create<simd::SIMDCastSIMDCipherToSISDCipherOp>(op->getLoc(), newTy, processed);
-                    //             }
-
-                    //             // Handle Bootstrapping
-                    //             if (!needSISD && pState != STATE_SISD) {
-                    //                 int req = bestS + getLevelConsumption(op);
-                    //                 if (req > MAX_SIMD_LEVEL) {
-                    //                     llvm::errs() << "  [Insert] Bootstrapping\n";
-                    //                     auto bootTy = simd::SIMDCipherType::get(op->getContext(), MAX_SIMD_LEVEL, n->vectorCount, rewriter.getI64Type());
-                    //                     // processed = rewriter.create<simd::SIMDBootOp>(op->getLoc(), bootTy, processed);
-                    //                 }
-                    //             }
-                    //             newOperands.push_back(processed);
-                    //         } else {
-                    //             // [修复] 外部输入（如 Encrypt 的明文），直接透传
-                    //             newOperands.push_back(oldOperand);
-                    //         }
-                    //     }
-
-                    //     // Create New Op (保持不变)
-                    //     Operation* newOp = nullptr;
-
-                    //     if (bestS == STATE_SISD) {
-                    //         auto resTy = sisd::SISDCipherType::get(op->getContext(), n->vectorCount, rewriter.getI64Type());
-
-                    //         if (isa<simd::SIMDAddOp, sisd::SISDAddOp>(op)) {
-                    //             newOp = rewriter.create<sisd::SISDAddOp>(op->getLoc(), resTy, newOperands[0], newOperands[1]);
-                    //         } else if (isa<simd::SIMDSubOp, sisd::SISDSubOp>(op)) {
-                    //             newOp = rewriter.create<sisd::SISDSubOp>(op->getLoc(), resTy, newOperands[0], newOperands[1]);
-                    //         } else if (isa<simd::SIMDMinOp, sisd::SISDMinOp>(op)) {
-                    //             newOp = rewriter.create<sisd::SISDMinOp>(op->getLoc(), resTy, newOperands[0]);
-                    //         } else if (isa<simd::SIMDEncryptOp, sisd::SISDEncryptOp>(op)) {
-                    //             newOp = rewriter.create<sisd::SISDEncryptOp>(op->getLoc(), resTy, newOperands[0]);
-                    //         } else if (isa<simd::SIMDDecryptOp, sisd::SISDDecryptOp>(op)) {
-                    //             newOp = rewriter.create<sisd::SISDDecryptOp>(op->getLoc(), op->getResultTypes(), newOperands[0]);
-                    //         }
-                    //     } else {
-                    //         // SIMD
-                    //         int outLvl = bestS;
-                    //         auto resTy = simd::SIMDCipherType::get(op->getContext(), outLvl, n->vectorCount, rewriter.getI64Type());
-
-                    //         if (isa<simd::SIMDAddOp, sisd::SISDAddOp>(op)) {
-                    //             newOp = rewriter.create<simd::SIMDAddOp>(op->getLoc(), resTy, newOperands[0], newOperands[1]);
-                    //         } else if (isa<simd::SIMDSubOp, sisd::SISDSubOp>(op)) {
-                    //             newOp = rewriter.create<simd::SIMDSubOp>(op->getLoc(), resTy, newOperands[0], newOperands[1]);
-                    //         } else if (isa<simd::SIMDMultOp>(op)) {
-                    //             newOp = rewriter.create<simd::SIMDMultOp>(op->getLoc(), resTy, newOperands[0], newOperands[1]);
-                    //         } else if (isa<simd::SIMDMinOp, sisd::SISDMinOp>(op)) {
-                    //             newOp = rewriter.create<simd::SIMDMinOp>(op->getLoc(), resTy, newOperands[0]);
-                    //         } else if (isa<simd::SIMDEncryptOp, sisd::SISDEncryptOp>(op)) {
-                    //             newOp = rewriter.create<simd::SIMDEncryptOp>(op->getLoc(), resTy, newOperands[0]);
-                    //         } else if (isa<simd::SIMDDecryptOp, sisd::SISDDecryptOp>(op)) {
-                    //             newOp = rewriter.create<simd::SIMDDecryptOp>(op->getLoc(), op->getResultTypes(), newOperands[0]);
-                    //         }
-                    //     }
-
-                    //     if (newOp) {
-                    //         rewriteMap[op->getResult(0)] = newOp->getResult(0);
-                    //     }
-                    // }
-
-                    // ------------------------------------------------------------
-                    // 6. Selection & Rewrite
-                    // ------------------------------------------------------------
-                    llvm::errs() << "\n=== [Phase 3] Selection & Rewrite ===\n";
+                    // Phase 3: Selection & Rewrite
+                    DBG("\n=== [Phase 3] Selection & Rewrite ===\n");
                     llvm::DenseMap<Value, Value> rewriteMap;
                     IRRewriter rewriter(&getContext());
 
                     for (Node* n : topo) {
                         Operation* op = n->op;
-
-                        // --------------------------------------------------------
-                        // 6a. Choose Best State
-                        // --------------------------------------------------------
                         double bestVal = INF_COST;
                         int bestS = -1;
 
-                        for (int s = 0; s < NUM_STATES; ++s) {
+                        for (int s = 0; s < NodeState::TOTAL_STATES; ++s) {
                             if (n->dpCost[s] >= INF_COST)
                                 continue;
+                            NodeState myOutputTarget = NodeState::fromIndex(s);
+                            auto [isValidReq, myInputReq] = mapConsumerStateToInputReq(op, myOutputTarget);
+                            if (!isValidReq)
+                                continue;
 
-                            double transitionCost = 0;
+                            double transSum = 0;
                             bool possible = true;
-
                             for (Edge* e : n->inEdges) {
                                 Node* parent = nodeMap[e->producer].get();
-                                int pState = parent->chosenOutputState;
-                                double edgeC = 0;
-
-                                if (pState == STATE_SISD) {
-                                    if (s != STATE_SISD)  // SISD -> SIMD Cast
-                                        edgeC = costModel.getCastCost(false, true, n->vectorCount);
-                                } else {
-                                    if (s == STATE_SISD) {  // SIMD -> SISD Cast
-                                        edgeC = costModel.getCastCost(true, false, n->vectorCount);
-                                    } else {
-                                        // SIMD -> SIMD
-                                        // 计算当前 Op 在状态 s 下所需的输入 Level
-                                        int req = s + getLevelConsumption(op);
-
-                                        if (req > MAX_SIMD_LEVEL) {
-                                            // 物理上不可能的操作 (需要超过 29 层的输入)
-                                            possible = false;
-                                        } else {
-                                            // [逻辑修改] 检查是否需要 Boot
-                                            if (pState < req) {
-                                                // 父节点提供的 Level 不够，必须 Boot。
-                                                // 成本 = Boot 到目标 req Level 的成本
-                                                edgeC = costModel.getBootCost(req);
-                                            } else {
-                                                // 父节点 Level 足够，无额外成本
-                                                edgeC = 0;
-                                            }
-                                        }
-                                    }
+                                NodeState p = NodeState::fromIndex(parent->chosenOutputState);
+                                double edgeC = getTransitionCost(p, myInputReq, n->vectorCount, costModel);
+                                if (edgeC >= INF_COST) {
+                                    possible = false;
+                                    break;
                                 }
-                                transitionCost += edgeC;
+                                transSum += edgeC;
                             }
-
-                            if (possible) {
-                                if (transitionCost + n->dpCost[s] < bestVal) {
-                                    bestVal = transitionCost + n->dpCost[s];
-                                    bestS = s;
-                                }
+                            if (possible && (transSum + n->dpCost[s] < bestVal)) {
+                                bestVal = transSum + n->dpCost[s];
+                                bestS = s;
                             }
                         }
 
@@ -669,109 +497,113 @@ namespace mlir::libra::mdsel {
                             return;
                         }
                         n->chosenOutputState = bestS;
-                        llvm::errs() << "Node " << op->getName() << " Chosen State: "
-                                     << (bestS == STATE_SISD ? "SISD" : ("SIMD Level " + std::to_string(bestS)))
-                                     << " (TotalCost=" << bestVal << ")\n";
+                        NodeState bestState = NodeState::fromIndex(bestS);
+                        DBG("Node " << op->getName() << " Selected: " << bestState.toString() << "\n");
 
-                        // --------------------------------------------------------
-                        // 6b. Generate IR
-                        // --------------------------------------------------------
                         rewriter.setInsertionPoint(op);
                         SmallVector<Value, 2> newOperands;
+                        auto [_, targetForEdge] = mapConsumerStateToInputReq(op, bestState);
 
                         for (Value oldOperand : op->getOperands()) {
                             Operation* defOp = oldOperand.getDefiningOp();
-
-                            // 只处理图内部的边
                             if (defOp && nodeMap.count(defOp)) {
                                 Node* parent = nodeMap[defOp].get();
-                                int pState = parent->chosenOutputState;
-
+                                NodeState pState = NodeState::fromIndex(parent->chosenOutputState);
                                 Value incoming = rewriteMap.lookup(oldOperand);
                                 if (!incoming)
                                     incoming = oldOperand;
+                                int64_t edgeVecCnt = parent->vectorCount;
 
-                                bool needSISD = (bestS == STATE_SISD);
-                                Value processed = incoming;
-
-                                // 1. Handle Casts
-                                if (pState == STATE_SISD && !needSISD) {
-                                    llvm::errs() << "  [Insert] Cast SISD -> SIMD\n";
-                                    // Cast 后通常假设恢复到 Max Level 或者特定 Level，
-                                    // 如果还需要降级/Boot，由下面的逻辑继续处理
-                                    auto newTy = simd::SIMDCipherType::get(op->getContext(), MAX_SIMD_LEVEL, n->vectorCount, rewriter.getI64Type());
-                                    processed = rewriter.create<sisd::SISDCastSISDCipherToSIMDCipherOp>(op->getLoc(), newTy, processed);
-                                    pState = MAX_SIMD_LEVEL;  // 更新状态为 Cast 后的状态
-                                } else if (pState != STATE_SISD && needSISD) {
-                                    llvm::errs() << "  [Insert] Cast SIMD -> SISD\n";
-                                    auto newTy = sisd::SISDCipherType::get(op->getContext(), n->vectorCount, rewriter.getI64Type());
-                                    processed = rewriter.create<simd::SIMDCastSIMDCipherToSISDCipherOp>(op->getLoc(), newTy, processed);
+                                // 1. SISD -> SIMD
+                                if (pState.isSISD() && targetForEdge.isSIMD()) {
+                                    DBG("  [Insert] Cast SISD->SIMD\n");
+                                    // Cast to SIMD Clean/Standard/Level
+                                    auto newTy = simd::SIMDCipherType::get(op->getContext(), targetForEdge.level, n->vectorCount, rewriter.getI64Type(), 1, 2);
+                                    incoming = rewriter.create<sisd::SISDCastSISDCipherToSIMDCipherOp>(op->getLoc(), newTy, incoming);
                                 }
-
-                                // 2. Handle Bootstrapping
-                                if (!needSISD && pState != STATE_SISD) {
-                                    int req = bestS + getLevelConsumption(op);
-
-                                    // [使用 SIMDBootOp]
-                                    if (pState < req) {
-                                        llvm::errs() << "  [Insert] Bootstrapping to Level " << req << "\n";
-
-                                        // 构造目标类型：Level = req
-                                        auto bootTy = simd::SIMDCipherType::get(op->getContext(), req, n->vectorCount, rewriter.getI64Type());
-
-                                        // 使用您定义的 SIMDBootOp
-                                        processed = rewriter.create<simd::SIMDBootOp>(op->getLoc(), bootTy, processed);
+                                // 2. SIMD -> SISD
+                                else if (pState.isSIMD() && targetForEdge.isSISD()) {
+                                    if (pState.basis == 3) {
+                                        DBG("  [Insert] Relin\n");
+                                        auto ty = simd::SIMDCipherType::get(op->getContext(), pState.level, edgeVecCnt, rewriter.getI64Type(), pState.scale, 2);
+                                        incoming = rewriter.create<simd::SIMDRelinOp>(op->getLoc(), ty, incoming);
+                                        pState.basis = 2;
+                                    }
+                                    if (pState.scale == 2) {
+                                        DBG("  [Insert] Rescale\n");
+                                        auto ty = simd::SIMDCipherType::get(op->getContext(), pState.level - 1, edgeVecCnt, rewriter.getI64Type(), 1, pState.basis);
+                                        incoming = rewriter.create<simd::SIMDRescaleOp>(op->getLoc(), ty, incoming);
+                                        pState.level--;
+                                        pState.scale = 1;
+                                    }
+                                    DBG("  [Insert] Cast SIMD->SISD\n");
+                                    auto newTy = sisd::SISDCipherType::get(op->getContext(), n->vectorCount, rewriter.getI64Type(), 1);
+                                    incoming = rewriter.create<simd::SIMDCastSIMDCipherToSISDCipherOp>(op->getLoc(), newTy, incoming);
+                                }
+                                // 3. SIMD -> SIMD
+                                else if (pState.isSIMD() && targetForEdge.isSIMD()) {
+                                    if (pState.basis == 3 && targetForEdge.basis == 2) {
+                                        DBG("  [Insert] Relin\n");
+                                        auto ty = simd::SIMDCipherType::get(op->getContext(), pState.level, edgeVecCnt, rewriter.getI64Type(), pState.scale, 2);
+                                        incoming = rewriter.create<simd::SIMDRelinOp>(op->getLoc(), ty, incoming);
+                                        pState.basis = 2;
+                                    }
+                                    if (pState.scale == 2 && targetForEdge.scale == 1) {
+                                        DBG("  [Insert] Rescale\n");
+                                        auto ty = simd::SIMDCipherType::get(op->getContext(), pState.level - 1, edgeVecCnt, rewriter.getI64Type(), 1, pState.basis);
+                                        incoming = rewriter.create<simd::SIMDRescaleOp>(op->getLoc(), ty, incoming);
+                                        pState.level--;
+                                        pState.scale = 1;
+                                    }
+                                    if (pState.level < targetForEdge.level) {
+                                        DBG("  [Insert] Boot to " << targetForEdge.level << "\n");
+                                        auto ty = simd::SIMDCipherType::get(op->getContext(), targetForEdge.level, edgeVecCnt, rewriter.getI64Type(), 1, 2);
+                                        incoming = rewriter.create<simd::SIMDBootOp>(op->getLoc(), ty, incoming);
+                                    } else if (pState.level > targetForEdge.level) {
+                                        DBG("  [Insert] ModSwitch to " << targetForEdge.level << "\n");
+                                        auto ty = simd::SIMDCipherType::get(op->getContext(), targetForEdge.level, edgeVecCnt, rewriter.getI64Type(), pState.scale, pState.basis);
+                                        incoming = rewriter.create<simd::SIMDModSwitchOp>(op->getLoc(), ty, incoming);
                                     }
                                 }
-                                newOperands.push_back(processed);
+                                newOperands.push_back(incoming);
                             } else {
-                                // 外部输入直接透传
                                 newOperands.push_back(oldOperand);
                             }
                         }
 
-                        // 3. Create New Op
                         Operation* newOp = nullptr;
-
-                        if (bestS == STATE_SISD) {
-                            auto resTy = sisd::SISDCipherType::get(op->getContext(), n->vectorCount, rewriter.getI64Type());
-                            if (isa<simd::SIMDAddOp, sisd::SISDAddOp>(op)) {
+                        if (bestState.isSISD()) {
+                            auto resTy = sisd::SISDCipherType::get(op->getContext(), n->vectorCount, rewriter.getI64Type(), 1);
+                            if (isa<simd::SIMDAddOp, sisd::SISDAddOp>(op))
                                 newOp = rewriter.create<sisd::SISDAddOp>(op->getLoc(), resTy, newOperands[0], newOperands[1]);
-                            } else if (isa<simd::SIMDSubOp, sisd::SISDSubOp>(op)) {
+                            else if (isa<simd::SIMDSubOp, sisd::SISDSubOp>(op))
                                 newOp = rewriter.create<sisd::SISDSubOp>(op->getLoc(), resTy, newOperands[0], newOperands[1]);
-                            } else if (isa<simd::SIMDMinOp, sisd::SISDMinOp>(op)) {
+                            else if (isa<simd::SIMDMinOp, sisd::SISDMinOp>(op))
                                 newOp = rewriter.create<sisd::SISDMinOp>(op->getLoc(), resTy, newOperands[0]);
-                            } else if (isa<simd::SIMDEncryptOp, sisd::SISDEncryptOp>(op)) {
+                            else if (isa<simd::SIMDEncryptOp, sisd::SISDEncryptOp>(op))
                                 newOp = rewriter.create<sisd::SISDEncryptOp>(op->getLoc(), resTy, newOperands[0]);
-                            } else if (isa<simd::SIMDDecryptOp, sisd::SISDDecryptOp>(op)) {
+                            else if (isa<simd::SIMDDecryptOp, sisd::SISDDecryptOp>(op))
                                 newOp = rewriter.create<sisd::SISDDecryptOp>(op->getLoc(), op->getResultTypes(), newOperands[0]);
-                            }
                         } else {
-                            // SIMD
-                            int outLvl = bestS;
-                            auto resTy = simd::SIMDCipherType::get(op->getContext(), outLvl, n->vectorCount, rewriter.getI64Type());
-
-                            if (isa<simd::SIMDAddOp, sisd::SISDAddOp>(op)) {
+                            auto resTy = simd::SIMDCipherType::get(op->getContext(), bestState.level, n->vectorCount, rewriter.getI64Type(), bestState.scale, bestState.basis);
+                            if (isa<simd::SIMDAddOp, sisd::SISDAddOp>(op))
                                 newOp = rewriter.create<simd::SIMDAddOp>(op->getLoc(), resTy, newOperands[0], newOperands[1]);
-                            } else if (isa<simd::SIMDSubOp, sisd::SISDSubOp>(op)) {
+                            else if (isa<simd::SIMDSubOp, sisd::SISDSubOp>(op))
                                 newOp = rewriter.create<simd::SIMDSubOp>(op->getLoc(), resTy, newOperands[0], newOperands[1]);
-                            } else if (isa<simd::SIMDMultOp>(op)) {
+                            else if (isa<simd::SIMDMultOp>(op))
                                 newOp = rewriter.create<simd::SIMDMultOp>(op->getLoc(), resTy, newOperands[0], newOperands[1]);
-                            } else if (isa<simd::SIMDMinOp, sisd::SISDMinOp>(op)) {
+                            else if (isa<simd::SIMDMinOp, sisd::SISDMinOp>(op))
                                 newOp = rewriter.create<simd::SIMDMinOp>(op->getLoc(), resTy, newOperands[0]);
-                            } else if (isa<simd::SIMDEncryptOp, sisd::SISDEncryptOp>(op)) {
+                            else if (isa<simd::SIMDEncryptOp, sisd::SISDEncryptOp>(op))
                                 newOp = rewriter.create<simd::SIMDEncryptOp>(op->getLoc(), resTy, newOperands[0]);
-                            } else if (isa<simd::SIMDDecryptOp, sisd::SISDDecryptOp>(op)) {
+                            else if (isa<simd::SIMDDecryptOp, sisd::SISDDecryptOp>(op))
                                 newOp = rewriter.create<simd::SIMDDecryptOp>(op->getLoc(), op->getResultTypes(), newOperands[0]);
-                            }
                         }
 
-                        if (newOp) {
+                        if (newOp)
                             rewriteMap[op->getResult(0)] = newOp->getResult(0);
-                        }
                     }
 
-                    // Cleanup Old Ops
                     for (auto it = topo.rbegin(); it != topo.rend(); ++it) {
                         Operation* oldOp = (*it)->op;
                         if (rewriteMap.count(oldOp->getResult(0))) {

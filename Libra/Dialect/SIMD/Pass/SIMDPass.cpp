@@ -28,7 +28,8 @@ namespace mlir::libra::simd {
             if (auto st = dyn_cast<SIMDCipherType>(t))
                 return st;
             if (auto st = dyn_cast<scfhe::SCFHECipherType>(t))
-                return SIMDCipherType::get(ctx, level, st.getPlaintextCount(), st.getElementType());
+                // [Fix] Added Scale=1, Basis=2
+                return SIMDCipherType::get(ctx, level, st.getPlaintextCount(), st.getElementType(), 1, 2);
             return failure();
         }
 
@@ -43,7 +44,12 @@ namespace mlir::libra::simd {
             if (reduceLevel)
                 newLevel = std::max<int64_t>(0, newLevel - 1);
             int64_t newPC = std::min(ta->getPlaintextCount(), tb->getPlaintextCount());
-            return SIMDCipherType::get(ctx, newLevel, newPC, ta->getElementType());
+
+            // [Fix] Added Scale=1, Basis=2. (Assumption: Initial conversion produces standard types)
+            // If this inference is for Mult, reduceLevel=true implies consumption, output might be Dirty?
+            // However, this pass seems to be a basic lowering pass (SCFHE->SIMD), not the advanced ModeSelectPass.
+            // So setting default Clean/Standard is safer for initial IR generation.
+            return SIMDCipherType::get(ctx, newLevel, newPC, ta->getElementType(), 1, 2);
         }
 
         //===----------------------------------------------------------------------===//
@@ -100,7 +106,8 @@ namespace mlir::libra::simd {
                 auto inTy = convertToSIMDType(op.getOperand().getType(), ctx);
                 if (failed(inTy))
                     return failure();
-                auto ty = SIMDCipherType::get(ctx, inTy->getLevel(), /*pc=*/1, inTy->getElementType());
+                // [Fix] Added Scale=1, Basis=2
+                auto ty = SIMDCipherType::get(ctx, inTy->getLevel(), /*pc=*/1, inTy->getElementType(), 1, 2);
                 auto newOp = rewriter.create<SIMDMinOp>(op.getLoc(), ty, op.getOperand());
                 rewriter.replaceOp(op, newOp);
                 return success();
@@ -199,8 +206,9 @@ namespace mlir::libra::simd {
                 auto inTy = dyn_cast<SIMDCipherType>(op.getOperand().getType());
                 if (!inTy)
                     return failure();
+                // [Fix] Added Scale=1, Basis=2
                 auto newTy = SIMDCipherType::get(rewriter.getContext(), inTy.getLevel(), /*pc=*/1,
-                                                 inTy.getElementType());
+                                                 inTy.getElementType(), 1, 2);
                 if (newTy == op.getResult().getType())
                     return failure();
                 auto newOp = rewriter.create<SIMDMinOp>(op.getLoc(), newTy, op.getOperand());

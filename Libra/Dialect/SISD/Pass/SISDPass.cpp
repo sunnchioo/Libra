@@ -33,7 +33,7 @@ namespace mlir::libra::sisd {
                                           PatternRewriter& rewriter) const override {
                 Location loc = op.getLoc();
 
-                // 0. 检查 op 的操作数和 result 类型（假设 simd.min 只有一个 operand）
+                // 0. 检查 op 的操作数和 result 类型
                 if (op->getNumOperands() != 1)
                     return failure();
 
@@ -47,22 +47,25 @@ namespace mlir::libra::sisd {
 
                 MLIRContext* ctx = rewriter.getContext();
                 Type elemType = simdInType.getElementType();
-                int64_t level = simdInType.getLevel();
+                // int64_t level = simdInType.getLevel(); // Unused here
                 int64_t plaintextCount = simdInType.getPlaintextCount();
 
                 // --- 1. Cast to SISD: drop SIMD-level dimension ---
-                auto sisdInType = sisd::SISDCipherType::get(ctx, plaintextCount, elemType);
+                // [Fix] Added scale=1 (Clean)
+                auto sisdInType = sisd::SISDCipherType::get(ctx, plaintextCount, elemType, 1);
                 Value sisdInput = rewriter.create<simd::SIMDCastSIMDCipherToSISDCipherOp>(
                     loc, sisdInType, operand);
 
                 // --- 2. SISD.min ---
-                auto sisdResultType = sisd::SISDCipherType::get(ctx, /*plaintextCount=*/1, elemType);
+                // [Fix] Added scale=1 (Clean)
+                auto sisdResultType = sisd::SISDCipherType::get(ctx, /*plaintextCount=*/1, elemType, 1);
                 auto newSISDMin = rewriter.create<sisd::SISDMinOp>(
                     loc, sisdResultType, sisdInput);
 
                 // --- 3. Cast back to SIMD: restore level dimension ---
                 int SIMD_DEFAULT_LEVEL = simd::DEFAULT_LEVEL;
-                auto simdOutType = simd::SIMDCipherType::get(ctx, SIMD_DEFAULT_LEVEL, /*plaintextCount=*/1, elemType);
+                // [Fix] Added scale=1 (Clean), basis=2 (Standard)
+                auto simdOutType = simd::SIMDCipherType::get(ctx, SIMD_DEFAULT_LEVEL, /*plaintextCount=*/1, elemType, 1, 2);
                 Value castBackToSIMD = rewriter.create<sisd::SISDCastSISDCipherToSIMDCipherOp>(
                     loc, simdOutType, newSISDMin);
 

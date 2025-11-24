@@ -64,67 +64,496 @@ module {
       %19 = llvm.call @__isoc99_scanf(%2, %17, %18) vararg(!llvm.func<i32 (ptr, ...)>) : (!llvm.ptr, !llvm.ptr, !llvm.ptr) -> i32
     }
     %5 = vector.transfer_read %alloca_0[%c0], %cst {in_bounds = [true]} : memref<8xf64>, vector<8xf64>
-    %6 = simd.encrypt %5 : vector<8xf64> -> !simd.simdcipher<31 x 8 x i64>
+    %6 = simd.encrypt %5 : vector<8xf64> -> !simd.simdcipher<31 x 8 x i64, 1, 2>
     %7 = vector.transfer_read %alloca[%c0], %cst {in_bounds = [true]} : memref<8xf64>, vector<8xf64>
-    %8 = simd.encrypt %7 : vector<8xf64> -> !simd.simdcipher<31 x 8 x i64>
-    %9 = simd.sub %6 _ %8 : !simd.simdcipher<31 x 8 x i64>
-    %10 = simd.mult %9 * %9 : !simd.simdcipher<31 x 8 x i64>, !simd.simdcipher<31 x 8 x i64> -> !simd.simdcipher<30 x 8 x i64>
-    %11 = simd.min %10 : !simd.simdcipher<30 x 8 x i64> -> !simd.simdcipher<30 x 1 x i64>
+    %8 = simd.encrypt %7 : vector<8xf64> -> !simd.simdcipher<31 x 8 x i64, 1, 2>
+    %9 = simd.sub %6 _ %8 : !simd.simdcipher<31 x 8 x i64, 1, 2>
+    %10 = simd.mult %9 * %9 : !simd.simdcipher<31 x 8 x i64, 1, 2>, !simd.simdcipher<31 x 8 x i64, 1, 2> -> !simd.simdcipher<30 x 8 x i64, 1, 2>
+    %11 = simd.min %10 : !simd.simdcipher<30 x 8 x i64, 1, 2> -> !simd.simdcipher<30 x 1 x i64, 1, 2>
     %12 = llvm.getelementptr %0[0, 0] : (!llvm.ptr) -> !llvm.ptr, !llvm.array<9 x i8>
-    %13 = simd.decrypt %11 : !simd.simdcipher<30 x 1 x i64> : f64
+    %13 = simd.decrypt %11 : !simd.simdcipher<30 x 1 x i64, 1, 2> : f64
     %14 = llvm.call @printf(%12, %13) vararg(!llvm.func<i32 (ptr, ...)>) : (!llvm.ptr, f64) -> i32
     return %c0_i32 : i32
   }
 }
 
 
-[CostModel] Loading from: /mnt/data0/home/syt/Libra/Libra/Dialect/Analysis/cost_table.json
-[CostModel] Loaded 34 entries.
-
+[ModeSel] Loading CostModel from: /mnt/data0/home/syt/Libra/Libra/Dialect/Analysis/cost_table.json
+[ModeSel] 
 Processing Function: main
-Topo Sort Order:
-  -> simd.encrypt
-  -> simd.encrypt
-  -> simd.sub
-  -> simd.mult
-  -> simd.min
-  -> simd.decrypt
-
+[ModeSel] 
 === [Phase 1] Shape Inference ===
-Node: simd.encrypt | VectorCount: 8
-Node: simd.encrypt | VectorCount: 8
-Node: simd.sub | VectorCount: 8
-Node: simd.mult | VectorCount: 8
-Node: simd.min | VectorCount: 1
-Node: simd.decrypt | VectorCount: 1
-
+[ModeSel] Node: simd.encrypt -> Count=8
+[ModeSel] Node: simd.encrypt -> Count=8
+[ModeSel] Node: simd.sub -> Count=8
+[ModeSel] Node: simd.mult -> Count=8
+[ModeSel] Node: simd.min -> Count=1
+[ModeSel] Node: simd.decrypt -> Count=1
+[ModeSel] 
 === [Phase 2] DP Bottom-Up ===
-[DP] Processing simd.decrypt (Consume=0)
-  -> SISD Cost: 0.000000e+00 (Local=0.000000e+00 Children=0.000000e+00)
-  -> Valid SIMD Levels: 0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30 31 
-[DP] Processing simd.min (Consume=3)
-  -> SISD Cost: 0.000000e+00 (Local=0.000000e+00 Children=0.000000e+00)
-  -> Valid SIMD Levels: 0 1 
-[DP] Processing simd.mult (Consume=1)
-  -> Valid SIMD Levels: 0 3 7 15 
-[DP] Processing simd.sub (Consume=0)
-  -> SISD Cost: 2.400000e+01 (Local=5.000000e+00 Children=1.900000e+01)
-  -> Valid SIMD Levels: 1 4 8 16 
-[DP] Processing simd.encrypt (Consume=0)
-  -> SISD Cost: 1.850000e+01 (Local=0.000000e+00 Children=1.850000e+01)
-  -> Valid SIMD Levels: 0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30 31 
-[DP] Processing simd.encrypt (Consume=0)
-  -> SISD Cost: 1.850000e+01 (Local=0.000000e+00 Children=1.850000e+01)
-  -> Valid SIMD Levels: 0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30 31 
-
+[ModeSel] [DP] Processing simd.decrypt
+[ModeSel]   Valid: SIMD(L=0, S=Clean, B=Std) | Cost=0.000000e+00
+[ModeSel]   Valid: SIMD(L=0, S=Clean, B=Ext) | Cost=0.000000e+00
+[ModeSel]   Valid: SIMD(L=0, S=Dirty, B=Std) | Cost=0.000000e+00
+[ModeSel]   Valid: SIMD(L=0, S=Dirty, B=Ext) | Cost=0.000000e+00
+[ModeSel]   Valid: SIMD(L=1, S=Clean, B=Std) | Cost=0.000000e+00
+[ModeSel]   Valid: SIMD(L=1, S=Clean, B=Ext) | Cost=0.000000e+00
+[ModeSel]   Valid: SIMD(L=1, S=Dirty, B=Std) | Cost=0.000000e+00
+[ModeSel]   Valid: SIMD(L=1, S=Dirty, B=Ext) | Cost=0.000000e+00
+[ModeSel]   Valid: SIMD(L=2, S=Clean, B=Std) | Cost=0.000000e+00
+[ModeSel]   Valid: SIMD(L=2, S=Clean, B=Ext) | Cost=0.000000e+00
+[ModeSel]   Valid: SIMD(L=2, S=Dirty, B=Std) | Cost=0.000000e+00
+[ModeSel]   Valid: SIMD(L=2, S=Dirty, B=Ext) | Cost=0.000000e+00
+[ModeSel]   Valid: SIMD(L=3, S=Clean, B=Std) | Cost=0.000000e+00
+[ModeSel]   Valid: SIMD(L=3, S=Clean, B=Ext) | Cost=0.000000e+00
+[ModeSel]   Valid: SIMD(L=3, S=Dirty, B=Std) | Cost=0.000000e+00
+[ModeSel]   Valid: SIMD(L=3, S=Dirty, B=Ext) | Cost=0.000000e+00
+[ModeSel]   Valid: SIMD(L=4, S=Clean, B=Std) | Cost=0.000000e+00
+[ModeSel]   Valid: SIMD(L=4, S=Clean, B=Ext) | Cost=0.000000e+00
+[ModeSel]   Valid: SIMD(L=4, S=Dirty, B=Std) | Cost=0.000000e+00
+[ModeSel]   Valid: SIMD(L=4, S=Dirty, B=Ext) | Cost=0.000000e+00
+[ModeSel]   Valid: SIMD(L=5, S=Clean, B=Std) | Cost=0.000000e+00
+[ModeSel]   Valid: SIMD(L=5, S=Clean, B=Ext) | Cost=0.000000e+00
+[ModeSel]   Valid: SIMD(L=5, S=Dirty, B=Std) | Cost=0.000000e+00
+[ModeSel]   Valid: SIMD(L=5, S=Dirty, B=Ext) | Cost=0.000000e+00
+[ModeSel]   Valid: SIMD(L=6, S=Clean, B=Std) | Cost=0.000000e+00
+[ModeSel]   Valid: SIMD(L=6, S=Clean, B=Ext) | Cost=0.000000e+00
+[ModeSel]   Valid: SIMD(L=6, S=Dirty, B=Std) | Cost=0.000000e+00
+[ModeSel]   Valid: SIMD(L=6, S=Dirty, B=Ext) | Cost=0.000000e+00
+[ModeSel]   Valid: SIMD(L=7, S=Clean, B=Std) | Cost=0.000000e+00
+[ModeSel]   Valid: SIMD(L=7, S=Clean, B=Ext) | Cost=0.000000e+00
+[ModeSel]   Valid: SIMD(L=7, S=Dirty, B=Std) | Cost=0.000000e+00
+[ModeSel]   Valid: SIMD(L=7, S=Dirty, B=Ext) | Cost=0.000000e+00
+[ModeSel]   Valid: SIMD(L=8, S=Clean, B=Std) | Cost=0.000000e+00
+[ModeSel]   Valid: SIMD(L=8, S=Clean, B=Ext) | Cost=0.000000e+00
+[ModeSel]   Valid: SIMD(L=8, S=Dirty, B=Std) | Cost=0.000000e+00
+[ModeSel]   Valid: SIMD(L=8, S=Dirty, B=Ext) | Cost=0.000000e+00
+[ModeSel]   Valid: SIMD(L=9, S=Clean, B=Std) | Cost=0.000000e+00
+[ModeSel]   Valid: SIMD(L=9, S=Clean, B=Ext) | Cost=0.000000e+00
+[ModeSel]   Valid: SIMD(L=9, S=Dirty, B=Std) | Cost=0.000000e+00
+[ModeSel]   Valid: SIMD(L=9, S=Dirty, B=Ext) | Cost=0.000000e+00
+[ModeSel]   Valid: SIMD(L=10, S=Clean, B=Std) | Cost=0.000000e+00
+[ModeSel]   Valid: SIMD(L=10, S=Clean, B=Ext) | Cost=0.000000e+00
+[ModeSel]   Valid: SIMD(L=10, S=Dirty, B=Std) | Cost=0.000000e+00
+[ModeSel]   Valid: SIMD(L=10, S=Dirty, B=Ext) | Cost=0.000000e+00
+[ModeSel]   Valid: SIMD(L=11, S=Clean, B=Std) | Cost=0.000000e+00
+[ModeSel]   Valid: SIMD(L=11, S=Clean, B=Ext) | Cost=0.000000e+00
+[ModeSel]   Valid: SIMD(L=11, S=Dirty, B=Std) | Cost=0.000000e+00
+[ModeSel]   Valid: SIMD(L=11, S=Dirty, B=Ext) | Cost=0.000000e+00
+[ModeSel]   Valid: SIMD(L=12, S=Clean, B=Std) | Cost=0.000000e+00
+[ModeSel]   Valid: SIMD(L=12, S=Clean, B=Ext) | Cost=0.000000e+00
+[ModeSel]   Valid: SIMD(L=12, S=Dirty, B=Std) | Cost=0.000000e+00
+[ModeSel]   Valid: SIMD(L=12, S=Dirty, B=Ext) | Cost=0.000000e+00
+[ModeSel]   Valid: SIMD(L=13, S=Clean, B=Std) | Cost=0.000000e+00
+[ModeSel]   Valid: SIMD(L=13, S=Clean, B=Ext) | Cost=0.000000e+00
+[ModeSel]   Valid: SIMD(L=13, S=Dirty, B=Std) | Cost=0.000000e+00
+[ModeSel]   Valid: SIMD(L=13, S=Dirty, B=Ext) | Cost=0.000000e+00
+[ModeSel]   Valid: SIMD(L=14, S=Clean, B=Std) | Cost=0.000000e+00
+[ModeSel]   Valid: SIMD(L=14, S=Clean, B=Ext) | Cost=0.000000e+00
+[ModeSel]   Valid: SIMD(L=14, S=Dirty, B=Std) | Cost=0.000000e+00
+[ModeSel]   Valid: SIMD(L=14, S=Dirty, B=Ext) | Cost=0.000000e+00
+[ModeSel]   Valid: SIMD(L=15, S=Clean, B=Std) | Cost=0.000000e+00
+[ModeSel]   Valid: SIMD(L=15, S=Clean, B=Ext) | Cost=0.000000e+00
+[ModeSel]   Valid: SIMD(L=15, S=Dirty, B=Std) | Cost=0.000000e+00
+[ModeSel]   Valid: SIMD(L=15, S=Dirty, B=Ext) | Cost=0.000000e+00
+[ModeSel]   Valid: SIMD(L=16, S=Clean, B=Std) | Cost=0.000000e+00
+[ModeSel]   Valid: SIMD(L=16, S=Clean, B=Ext) | Cost=0.000000e+00
+[ModeSel]   Valid: SIMD(L=16, S=Dirty, B=Std) | Cost=0.000000e+00
+[ModeSel]   Valid: SIMD(L=16, S=Dirty, B=Ext) | Cost=0.000000e+00
+[ModeSel]   Valid: SIMD(L=17, S=Clean, B=Std) | Cost=0.000000e+00
+[ModeSel]   Valid: SIMD(L=17, S=Clean, B=Ext) | Cost=0.000000e+00
+[ModeSel]   Valid: SIMD(L=17, S=Dirty, B=Std) | Cost=0.000000e+00
+[ModeSel]   Valid: SIMD(L=17, S=Dirty, B=Ext) | Cost=0.000000e+00
+[ModeSel]   Valid: SIMD(L=18, S=Clean, B=Std) | Cost=0.000000e+00
+[ModeSel]   Valid: SIMD(L=18, S=Clean, B=Ext) | Cost=0.000000e+00
+[ModeSel]   Valid: SIMD(L=18, S=Dirty, B=Std) | Cost=0.000000e+00
+[ModeSel]   Valid: SIMD(L=18, S=Dirty, B=Ext) | Cost=0.000000e+00
+[ModeSel]   Valid: SIMD(L=19, S=Clean, B=Std) | Cost=0.000000e+00
+[ModeSel]   Valid: SIMD(L=19, S=Clean, B=Ext) | Cost=0.000000e+00
+[ModeSel]   Valid: SIMD(L=19, S=Dirty, B=Std) | Cost=0.000000e+00
+[ModeSel]   Valid: SIMD(L=19, S=Dirty, B=Ext) | Cost=0.000000e+00
+[ModeSel]   Valid: SIMD(L=20, S=Clean, B=Std) | Cost=0.000000e+00
+[ModeSel]   Valid: SIMD(L=20, S=Clean, B=Ext) | Cost=0.000000e+00
+[ModeSel]   Valid: SIMD(L=20, S=Dirty, B=Std) | Cost=0.000000e+00
+[ModeSel]   Valid: SIMD(L=20, S=Dirty, B=Ext) | Cost=0.000000e+00
+[ModeSel]   Valid: SIMD(L=21, S=Clean, B=Std) | Cost=0.000000e+00
+[ModeSel]   Valid: SIMD(L=21, S=Clean, B=Ext) | Cost=0.000000e+00
+[ModeSel]   Valid: SIMD(L=21, S=Dirty, B=Std) | Cost=0.000000e+00
+[ModeSel]   Valid: SIMD(L=21, S=Dirty, B=Ext) | Cost=0.000000e+00
+[ModeSel]   Valid: SIMD(L=22, S=Clean, B=Std) | Cost=0.000000e+00
+[ModeSel]   Valid: SIMD(L=22, S=Clean, B=Ext) | Cost=0.000000e+00
+[ModeSel]   Valid: SIMD(L=22, S=Dirty, B=Std) | Cost=0.000000e+00
+[ModeSel]   Valid: SIMD(L=22, S=Dirty, B=Ext) | Cost=0.000000e+00
+[ModeSel]   Valid: SIMD(L=23, S=Clean, B=Std) | Cost=0.000000e+00
+[ModeSel]   Valid: SIMD(L=23, S=Clean, B=Ext) | Cost=0.000000e+00
+[ModeSel]   Valid: SIMD(L=23, S=Dirty, B=Std) | Cost=0.000000e+00
+[ModeSel]   Valid: SIMD(L=23, S=Dirty, B=Ext) | Cost=0.000000e+00
+[ModeSel]   Valid: SIMD(L=24, S=Clean, B=Std) | Cost=0.000000e+00
+[ModeSel]   Valid: SIMD(L=24, S=Clean, B=Ext) | Cost=0.000000e+00
+[ModeSel]   Valid: SIMD(L=24, S=Dirty, B=Std) | Cost=0.000000e+00
+[ModeSel]   Valid: SIMD(L=24, S=Dirty, B=Ext) | Cost=0.000000e+00
+[ModeSel]   Valid: SIMD(L=25, S=Clean, B=Std) | Cost=0.000000e+00
+[ModeSel]   Valid: SIMD(L=25, S=Clean, B=Ext) | Cost=0.000000e+00
+[ModeSel]   Valid: SIMD(L=25, S=Dirty, B=Std) | Cost=0.000000e+00
+[ModeSel]   Valid: SIMD(L=25, S=Dirty, B=Ext) | Cost=0.000000e+00
+[ModeSel]   Valid: SIMD(L=26, S=Clean, B=Std) | Cost=0.000000e+00
+[ModeSel]   Valid: SIMD(L=26, S=Clean, B=Ext) | Cost=0.000000e+00
+[ModeSel]   Valid: SIMD(L=26, S=Dirty, B=Std) | Cost=0.000000e+00
+[ModeSel]   Valid: SIMD(L=26, S=Dirty, B=Ext) | Cost=0.000000e+00
+[ModeSel]   Valid: SIMD(L=27, S=Clean, B=Std) | Cost=0.000000e+00
+[ModeSel]   Valid: SIMD(L=27, S=Clean, B=Ext) | Cost=0.000000e+00
+[ModeSel]   Valid: SIMD(L=27, S=Dirty, B=Std) | Cost=0.000000e+00
+[ModeSel]   Valid: SIMD(L=27, S=Dirty, B=Ext) | Cost=0.000000e+00
+[ModeSel]   Valid: SIMD(L=28, S=Clean, B=Std) | Cost=0.000000e+00
+[ModeSel]   Valid: SIMD(L=28, S=Clean, B=Ext) | Cost=0.000000e+00
+[ModeSel]   Valid: SIMD(L=28, S=Dirty, B=Std) | Cost=0.000000e+00
+[ModeSel]   Valid: SIMD(L=28, S=Dirty, B=Ext) | Cost=0.000000e+00
+[ModeSel]   Valid: SIMD(L=29, S=Clean, B=Std) | Cost=0.000000e+00
+[ModeSel]   Valid: SIMD(L=29, S=Clean, B=Ext) | Cost=0.000000e+00
+[ModeSel]   Valid: SIMD(L=29, S=Dirty, B=Std) | Cost=0.000000e+00
+[ModeSel]   Valid: SIMD(L=29, S=Dirty, B=Ext) | Cost=0.000000e+00
+[ModeSel]   Valid: SISD | Cost=0.000000e+00
+[ModeSel] Summary: simd.decrypt has 121 valid states.
+[ModeSel] [DP] Processing simd.min
+[ModeSel]   Valid: SIMD(L=0, S=Clean, B=Std) | Cost=1.600000e+01
+[ModeSel]   Valid: SIMD(L=0, S=Clean, B=Ext) | Cost=1.600000e+01
+[ModeSel]   Valid: SIMD(L=0, S=Dirty, B=Std) | Cost=1.600000e+01
+[ModeSel]   Valid: SIMD(L=0, S=Dirty, B=Ext) | Cost=1.600000e+01
+[ModeSel]   Valid: SIMD(L=1, S=Clean, B=Std) | Cost=1.800000e+01
+[ModeSel]   Valid: SIMD(L=1, S=Clean, B=Ext) | Cost=1.800000e+01
+[ModeSel]   Valid: SIMD(L=1, S=Dirty, B=Std) | Cost=1.800000e+01
+[ModeSel]   Valid: SIMD(L=1, S=Dirty, B=Ext) | Cost=1.800000e+01
+[ModeSel]   Valid: SIMD(L=2, S=Clean, B=Std) | Cost=2.000000e+01
+[ModeSel]   Valid: SIMD(L=2, S=Clean, B=Ext) | Cost=2.000000e+01
+[ModeSel]   Valid: SIMD(L=2, S=Dirty, B=Std) | Cost=2.000000e+01
+[ModeSel]   Valid: SIMD(L=2, S=Dirty, B=Ext) | Cost=2.000000e+01
+[ModeSel]   Valid: SIMD(L=3, S=Clean, B=Std) | Cost=2.200000e+01
+[ModeSel]   Valid: SIMD(L=3, S=Clean, B=Ext) | Cost=2.200000e+01
+[ModeSel]   Valid: SIMD(L=3, S=Dirty, B=Std) | Cost=2.200000e+01
+[ModeSel]   Valid: SIMD(L=3, S=Dirty, B=Ext) | Cost=2.200000e+01
+[ModeSel]   Valid: SIMD(L=4, S=Clean, B=Std) | Cost=2.400000e+01
+[ModeSel]   Valid: SIMD(L=4, S=Clean, B=Ext) | Cost=2.400000e+01
+[ModeSel]   Valid: SIMD(L=4, S=Dirty, B=Std) | Cost=2.400000e+01
+[ModeSel]   Valid: SIMD(L=4, S=Dirty, B=Ext) | Cost=2.400000e+01
+[ModeSel]   Valid: SIMD(L=5, S=Clean, B=Std) | Cost=2.600000e+01
+[ModeSel]   Valid: SIMD(L=5, S=Clean, B=Ext) | Cost=2.600000e+01
+[ModeSel]   Valid: SIMD(L=5, S=Dirty, B=Std) | Cost=2.600000e+01
+[ModeSel]   Valid: SIMD(L=5, S=Dirty, B=Ext) | Cost=2.600000e+01
+[ModeSel]   Valid: SIMD(L=6, S=Clean, B=Std) | Cost=2.800000e+01
+[ModeSel]   Valid: SIMD(L=6, S=Clean, B=Ext) | Cost=2.800000e+01
+[ModeSel]   Valid: SIMD(L=6, S=Dirty, B=Std) | Cost=2.800000e+01
+[ModeSel]   Valid: SIMD(L=6, S=Dirty, B=Ext) | Cost=2.800000e+01
+[ModeSel]   Valid: SIMD(L=7, S=Clean, B=Std) | Cost=3.000000e+01
+[ModeSel]   Valid: SIMD(L=7, S=Clean, B=Ext) | Cost=3.000000e+01
+[ModeSel]   Valid: SIMD(L=7, S=Dirty, B=Std) | Cost=3.000000e+01
+[ModeSel]   Valid: SIMD(L=7, S=Dirty, B=Ext) | Cost=3.000000e+01
+[ModeSel]   Valid: SIMD(L=8, S=Clean, B=Std) | Cost=3.200000e+01
+[ModeSel]   Valid: SIMD(L=8, S=Clean, B=Ext) | Cost=3.200000e+01
+[ModeSel]   Valid: SIMD(L=8, S=Dirty, B=Std) | Cost=3.200000e+01
+[ModeSel]   Valid: SIMD(L=8, S=Dirty, B=Ext) | Cost=3.200000e+01
+[ModeSel]   Valid: SIMD(L=9, S=Clean, B=Std) | Cost=3.400000e+01
+[ModeSel]   Valid: SIMD(L=9, S=Clean, B=Ext) | Cost=3.400000e+01
+[ModeSel]   Valid: SIMD(L=9, S=Dirty, B=Std) | Cost=3.400000e+01
+[ModeSel]   Valid: SIMD(L=9, S=Dirty, B=Ext) | Cost=3.400000e+01
+[ModeSel]   Valid: SIMD(L=10, S=Clean, B=Std) | Cost=3.600000e+01
+[ModeSel]   Valid: SIMD(L=10, S=Clean, B=Ext) | Cost=3.600000e+01
+[ModeSel]   Valid: SIMD(L=10, S=Dirty, B=Std) | Cost=3.600000e+01
+[ModeSel]   Valid: SIMD(L=10, S=Dirty, B=Ext) | Cost=3.600000e+01
+[ModeSel]   Valid: SIMD(L=11, S=Clean, B=Std) | Cost=3.800000e+01
+[ModeSel]   Valid: SIMD(L=11, S=Clean, B=Ext) | Cost=3.800000e+01
+[ModeSel]   Valid: SIMD(L=11, S=Dirty, B=Std) | Cost=3.800000e+01
+[ModeSel]   Valid: SIMD(L=11, S=Dirty, B=Ext) | Cost=3.800000e+01
+[ModeSel]   Valid: SIMD(L=12, S=Clean, B=Std) | Cost=4.000000e+01
+[ModeSel]   Valid: SIMD(L=12, S=Clean, B=Ext) | Cost=4.000000e+01
+[ModeSel]   Valid: SIMD(L=12, S=Dirty, B=Std) | Cost=4.000000e+01
+[ModeSel]   Valid: SIMD(L=12, S=Dirty, B=Ext) | Cost=4.000000e+01
+[ModeSel]   Valid: SIMD(L=13, S=Clean, B=Std) | Cost=4.200000e+01
+[ModeSel]   Valid: SIMD(L=13, S=Clean, B=Ext) | Cost=4.200000e+01
+[ModeSel]   Valid: SIMD(L=13, S=Dirty, B=Std) | Cost=4.200000e+01
+[ModeSel]   Valid: SIMD(L=13, S=Dirty, B=Ext) | Cost=4.200000e+01
+[ModeSel]   Valid: SIMD(L=14, S=Clean, B=Std) | Cost=4.400000e+01
+[ModeSel]   Valid: SIMD(L=14, S=Clean, B=Ext) | Cost=4.400000e+01
+[ModeSel]   Valid: SIMD(L=14, S=Dirty, B=Std) | Cost=4.400000e+01
+[ModeSel]   Valid: SIMD(L=14, S=Dirty, B=Ext) | Cost=4.400000e+01
+[ModeSel]   Valid: SIMD(L=15, S=Clean, B=Std) | Cost=4.600000e+01
+[ModeSel]   Valid: SIMD(L=15, S=Clean, B=Ext) | Cost=4.600000e+01
+[ModeSel]   Valid: SIMD(L=15, S=Dirty, B=Std) | Cost=4.600000e+01
+[ModeSel]   Valid: SIMD(L=15, S=Dirty, B=Ext) | Cost=4.600000e+01
+[ModeSel]   Valid: SIMD(L=16, S=Clean, B=Std) | Cost=4.800000e+01
+[ModeSel]   Valid: SIMD(L=16, S=Clean, B=Ext) | Cost=4.800000e+01
+[ModeSel]   Valid: SIMD(L=16, S=Dirty, B=Std) | Cost=4.800000e+01
+[ModeSel]   Valid: SIMD(L=16, S=Dirty, B=Ext) | Cost=4.800000e+01
+[ModeSel]   Valid: SIMD(L=17, S=Clean, B=Std) | Cost=5.000000e+01
+[ModeSel]   Valid: SIMD(L=17, S=Clean, B=Ext) | Cost=5.000000e+01
+[ModeSel]   Valid: SIMD(L=17, S=Dirty, B=Std) | Cost=5.000000e+01
+[ModeSel]   Valid: SIMD(L=17, S=Dirty, B=Ext) | Cost=5.000000e+01
+[ModeSel]   Valid: SIMD(L=18, S=Clean, B=Std) | Cost=5.200000e+01
+[ModeSel]   Valid: SIMD(L=18, S=Clean, B=Ext) | Cost=5.200000e+01
+[ModeSel]   Valid: SIMD(L=18, S=Dirty, B=Std) | Cost=5.200000e+01
+[ModeSel]   Valid: SIMD(L=18, S=Dirty, B=Ext) | Cost=5.200000e+01
+[ModeSel]   Valid: SIMD(L=19, S=Clean, B=Std) | Cost=5.400000e+01
+[ModeSel]   Valid: SIMD(L=19, S=Clean, B=Ext) | Cost=5.400000e+01
+[ModeSel]   Valid: SIMD(L=19, S=Dirty, B=Std) | Cost=5.400000e+01
+[ModeSel]   Valid: SIMD(L=19, S=Dirty, B=Ext) | Cost=5.400000e+01
+[ModeSel]   Valid: SIMD(L=20, S=Clean, B=Std) | Cost=5.600000e+01
+[ModeSel]   Valid: SIMD(L=20, S=Clean, B=Ext) | Cost=5.600000e+01
+[ModeSel]   Valid: SIMD(L=20, S=Dirty, B=Std) | Cost=5.600000e+01
+[ModeSel]   Valid: SIMD(L=20, S=Dirty, B=Ext) | Cost=5.600000e+01
+[ModeSel]   Valid: SIMD(L=21, S=Clean, B=Std) | Cost=5.800000e+01
+[ModeSel]   Valid: SIMD(L=21, S=Clean, B=Ext) | Cost=5.800000e+01
+[ModeSel]   Valid: SIMD(L=21, S=Dirty, B=Std) | Cost=5.800000e+01
+[ModeSel]   Valid: SIMD(L=21, S=Dirty, B=Ext) | Cost=5.800000e+01
+[ModeSel]   Valid: SIMD(L=22, S=Clean, B=Std) | Cost=6.000000e+01
+[ModeSel]   Valid: SIMD(L=22, S=Clean, B=Ext) | Cost=6.000000e+01
+[ModeSel]   Valid: SIMD(L=22, S=Dirty, B=Std) | Cost=6.000000e+01
+[ModeSel]   Valid: SIMD(L=22, S=Dirty, B=Ext) | Cost=6.000000e+01
+[ModeSel]   Valid: SIMD(L=23, S=Clean, B=Std) | Cost=6.200000e+01
+[ModeSel]   Valid: SIMD(L=23, S=Clean, B=Ext) | Cost=6.200000e+01
+[ModeSel]   Valid: SIMD(L=23, S=Dirty, B=Std) | Cost=6.200000e+01
+[ModeSel]   Valid: SIMD(L=23, S=Dirty, B=Ext) | Cost=6.200000e+01
+[ModeSel]   Valid: SIMD(L=24, S=Clean, B=Std) | Cost=6.400000e+01
+[ModeSel]   Valid: SIMD(L=24, S=Clean, B=Ext) | Cost=6.400000e+01
+[ModeSel]   Valid: SIMD(L=24, S=Dirty, B=Std) | Cost=6.400000e+01
+[ModeSel]   Valid: SIMD(L=24, S=Dirty, B=Ext) | Cost=6.400000e+01
+[ModeSel]   Valid: SIMD(L=25, S=Clean, B=Std) | Cost=6.600000e+01
+[ModeSel]   Valid: SIMD(L=25, S=Clean, B=Ext) | Cost=6.600000e+01
+[ModeSel]   Valid: SIMD(L=25, S=Dirty, B=Std) | Cost=6.600000e+01
+[ModeSel]   Valid: SIMD(L=25, S=Dirty, B=Ext) | Cost=6.600000e+01
+[ModeSel]   Valid: SIMD(L=26, S=Clean, B=Std) | Cost=6.800000e+01
+[ModeSel]   Valid: SIMD(L=26, S=Clean, B=Ext) | Cost=6.800000e+01
+[ModeSel]   Valid: SIMD(L=26, S=Dirty, B=Std) | Cost=6.800000e+01
+[ModeSel]   Valid: SIMD(L=26, S=Dirty, B=Ext) | Cost=6.800000e+01
+[ModeSel]   Valid: SISD | Cost=5.000000e-01
+[ModeSel] Summary: simd.min has 109 valid states.
+[ModeSel] [DP] Processing simd.mult
+[ModeSel]   Valid: SIMD(L=1, S=Dirty, B=Ext) | Cost=2.030000e+01
+[ModeSel]   Valid: SIMD(L=2, S=Dirty, B=Ext) | Cost=2.130000e+01
+[ModeSel]   Valid: SIMD(L=3, S=Dirty, B=Ext) | Cost=2.050000e+01
+[ModeSel]   Valid: SIMD(L=4, S=Dirty, B=Ext) | Cost=2.300000e+01
+[ModeSel]   Valid: SIMD(L=5, S=Dirty, B=Ext) | Cost=2.430000e+01
+[ModeSel]   Valid: SIMD(L=6, S=Dirty, B=Ext) | Cost=2.530000e+01
+[ModeSel]   Valid: SIMD(L=7, S=Dirty, B=Ext) | Cost=2.630000e+01
+[ModeSel]   Valid: SIMD(L=8, S=Dirty, B=Ext) | Cost=2.730000e+01
+[ModeSel]   Valid: SIMD(L=9, S=Dirty, B=Ext) | Cost=2.830000e+01
+[ModeSel]   Valid: SIMD(L=10, S=Dirty, B=Ext) | Cost=2.930000e+01
+[ModeSel]   Valid: SIMD(L=11, S=Dirty, B=Ext) | Cost=3.030000e+01
+[ModeSel]   Valid: SIMD(L=12, S=Dirty, B=Ext) | Cost=3.130000e+01
+[ModeSel]   Valid: SIMD(L=13, S=Dirty, B=Ext) | Cost=3.230000e+01
+[ModeSel]   Valid: SIMD(L=14, S=Dirty, B=Ext) | Cost=3.330000e+01
+[ModeSel]   Valid: SIMD(L=15, S=Dirty, B=Ext) | Cost=3.430000e+01
+[ModeSel]   Valid: SIMD(L=16, S=Dirty, B=Ext) | Cost=3.530000e+01
+[ModeSel]   Valid: SIMD(L=17, S=Dirty, B=Ext) | Cost=3.630000e+01
+[ModeSel]   Valid: SIMD(L=18, S=Dirty, B=Ext) | Cost=3.730000e+01
+[ModeSel]   Valid: SIMD(L=19, S=Dirty, B=Ext) | Cost=3.830000e+01
+[ModeSel]   Valid: SIMD(L=20, S=Dirty, B=Ext) | Cost=3.930000e+01
+[ModeSel]   Valid: SIMD(L=21, S=Dirty, B=Ext) | Cost=4.030000e+01
+[ModeSel]   Valid: SIMD(L=22, S=Dirty, B=Ext) | Cost=4.130000e+01
+[ModeSel]   Valid: SIMD(L=23, S=Dirty, B=Ext) | Cost=4.230000e+01
+[ModeSel]   Valid: SIMD(L=24, S=Dirty, B=Ext) | Cost=4.330000e+01
+[ModeSel]   Valid: SIMD(L=25, S=Dirty, B=Ext) | Cost=4.430000e+01
+[ModeSel]   Valid: SIMD(L=26, S=Dirty, B=Ext) | Cost=4.530000e+01
+[ModeSel]   Valid: SIMD(L=27, S=Dirty, B=Ext) | Cost=4.630000e+01
+[ModeSel]   Valid: SIMD(L=28, S=Dirty, B=Ext) | Cost=4.730000e+01
+[ModeSel]   Valid: SIMD(L=29, S=Dirty, B=Ext) | Cost=4.830000e+01
+[ModeSel] Summary: simd.mult has 29 valid states.
+[ModeSel] [DP] Processing simd.sub
+[ModeSel]   Valid: SIMD(L=0, S=Clean, B=Std) | Cost=8.460000e+01
+[ModeSel]   Valid: SIMD(L=0, S=Clean, B=Ext) | Cost=1.006000e+02
+[ModeSel]   Valid: SIMD(L=1, S=Clean, B=Std) | Cost=4.270000e+01
+[ModeSel]   Valid: SIMD(L=1, S=Clean, B=Ext) | Cost=5.930000e+01
+[ModeSel]   Valid: SIMD(L=1, S=Dirty, B=Std) | Cost=9.510000e+01
+[ModeSel]   Valid: SIMD(L=1, S=Dirty, B=Ext) | Cost=1.117000e+02
+[ModeSel]   Valid: SIMD(L=2, S=Clean, B=Std) | Cost=4.280000e+01
+[ModeSel]   Valid: SIMD(L=2, S=Clean, B=Ext) | Cost=6.000000e+01
+[ModeSel]   Valid: SIMD(L=2, S=Dirty, B=Std) | Cost=5.360000e+01
+[ModeSel]   Valid: SIMD(L=2, S=Dirty, B=Ext) | Cost=7.080000e+01
+[ModeSel]   Valid: SIMD(L=3, S=Clean, B=Std) | Cost=4.290000e+01
+[ModeSel]   Valid: SIMD(L=3, S=Clean, B=Ext) | Cost=6.070000e+01
+[ModeSel]   Valid: SIMD(L=3, S=Dirty, B=Std) | Cost=5.410000e+01
+[ModeSel]   Valid: SIMD(L=3, S=Dirty, B=Ext) | Cost=7.190000e+01
+[ModeSel]   Valid: SIMD(L=4, S=Clean, B=Std) | Cost=4.300000e+01
+[ModeSel]   Valid: SIMD(L=4, S=Clean, B=Ext) | Cost=6.140000e+01
+[ModeSel]   Valid: SIMD(L=4, S=Dirty, B=Std) | Cost=5.460000e+01
+[ModeSel]   Valid: SIMD(L=4, S=Dirty, B=Ext) | Cost=7.300000e+01
+[ModeSel]   Valid: SIMD(L=5, S=Clean, B=Std) | Cost=4.310000e+01
+[ModeSel]   Valid: SIMD(L=5, S=Clean, B=Ext) | Cost=6.210000e+01
+[ModeSel]   Valid: SIMD(L=5, S=Dirty, B=Std) | Cost=5.510000e+01
+[ModeSel]   Valid: SIMD(L=5, S=Dirty, B=Ext) | Cost=7.410000e+01
+[ModeSel]   Valid: SIMD(L=6, S=Clean, B=Std) | Cost=4.320000e+01
+[ModeSel]   Valid: SIMD(L=6, S=Clean, B=Ext) | Cost=6.280000e+01
+[ModeSel]   Valid: SIMD(L=6, S=Dirty, B=Std) | Cost=5.560000e+01
+[ModeSel]   Valid: SIMD(L=6, S=Dirty, B=Ext) | Cost=7.520000e+01
+[ModeSel]   Valid: SIMD(L=7, S=Clean, B=Std) | Cost=4.330000e+01
+[ModeSel]   Valid: SIMD(L=7, S=Clean, B=Ext) | Cost=6.350000e+01
+[ModeSel]   Valid: SIMD(L=7, S=Dirty, B=Std) | Cost=5.610000e+01
+[ModeSel]   Valid: SIMD(L=7, S=Dirty, B=Ext) | Cost=7.630000e+01
+[ModeSel]   Valid: SIMD(L=8, S=Clean, B=Std) | Cost=4.340000e+01
+[ModeSel]   Valid: SIMD(L=8, S=Clean, B=Ext) | Cost=6.420000e+01
+[ModeSel]   Valid: SIMD(L=8, S=Dirty, B=Std) | Cost=5.660000e+01
+[ModeSel]   Valid: SIMD(L=8, S=Dirty, B=Ext) | Cost=7.740000e+01
+[ModeSel]   Valid: SIMD(L=9, S=Clean, B=Std) | Cost=4.350000e+01
+[ModeSel]   Valid: SIMD(L=9, S=Clean, B=Ext) | Cost=6.490000e+01
+[ModeSel]   Valid: SIMD(L=9, S=Dirty, B=Std) | Cost=5.710000e+01
+[ModeSel]   Valid: SIMD(L=9, S=Dirty, B=Ext) | Cost=7.850000e+01
+[ModeSel]   Valid: SIMD(L=10, S=Clean, B=Std) | Cost=4.360000e+01
+[ModeSel]   Valid: SIMD(L=10, S=Clean, B=Ext) | Cost=6.560000e+01
+[ModeSel]   Valid: SIMD(L=10, S=Dirty, B=Std) | Cost=5.760000e+01
+[ModeSel]   Valid: SIMD(L=10, S=Dirty, B=Ext) | Cost=7.960000e+01
+[ModeSel]   Valid: SIMD(L=11, S=Clean, B=Std) | Cost=4.370000e+01
+[ModeSel]   Valid: SIMD(L=11, S=Clean, B=Ext) | Cost=6.630000e+01
+[ModeSel]   Valid: SIMD(L=11, S=Dirty, B=Std) | Cost=5.810000e+01
+[ModeSel]   Valid: SIMD(L=11, S=Dirty, B=Ext) | Cost=8.070000e+01
+[ModeSel]   Valid: SIMD(L=12, S=Clean, B=Std) | Cost=4.380000e+01
+[ModeSel]   Valid: SIMD(L=12, S=Clean, B=Ext) | Cost=6.700000e+01
+[ModeSel]   Valid: SIMD(L=12, S=Dirty, B=Std) | Cost=5.860000e+01
+[ModeSel]   Valid: SIMD(L=12, S=Dirty, B=Ext) | Cost=8.180000e+01
+[ModeSel]   Valid: SIMD(L=13, S=Clean, B=Std) | Cost=4.390000e+01
+[ModeSel]   Valid: SIMD(L=13, S=Clean, B=Ext) | Cost=6.770000e+01
+[ModeSel]   Valid: SIMD(L=13, S=Dirty, B=Std) | Cost=5.910000e+01
+[ModeSel]   Valid: SIMD(L=13, S=Dirty, B=Ext) | Cost=8.290000e+01
+[ModeSel]   Valid: SIMD(L=14, S=Clean, B=Std) | Cost=4.400000e+01
+[ModeSel]   Valid: SIMD(L=14, S=Clean, B=Ext) | Cost=6.840000e+01
+[ModeSel]   Valid: SIMD(L=14, S=Dirty, B=Std) | Cost=5.960000e+01
+[ModeSel]   Valid: SIMD(L=14, S=Dirty, B=Ext) | Cost=8.400000e+01
+[ModeSel]   Valid: SIMD(L=15, S=Clean, B=Std) | Cost=4.410000e+01
+[ModeSel]   Valid: SIMD(L=15, S=Clean, B=Ext) | Cost=6.910000e+01
+[ModeSel]   Valid: SIMD(L=15, S=Dirty, B=Std) | Cost=6.010000e+01
+[ModeSel]   Valid: SIMD(L=15, S=Dirty, B=Ext) | Cost=8.510000e+01
+[ModeSel]   Valid: SIMD(L=16, S=Clean, B=Std) | Cost=4.420000e+01
+[ModeSel]   Valid: SIMD(L=16, S=Clean, B=Ext) | Cost=6.980000e+01
+[ModeSel]   Valid: SIMD(L=16, S=Dirty, B=Std) | Cost=6.060000e+01
+[ModeSel]   Valid: SIMD(L=16, S=Dirty, B=Ext) | Cost=8.620000e+01
+[ModeSel]   Valid: SIMD(L=17, S=Clean, B=Std) | Cost=4.430000e+01
+[ModeSel]   Valid: SIMD(L=17, S=Clean, B=Ext) | Cost=7.050000e+01
+[ModeSel]   Valid: SIMD(L=17, S=Dirty, B=Std) | Cost=6.110000e+01
+[ModeSel]   Valid: SIMD(L=17, S=Dirty, B=Ext) | Cost=8.730000e+01
+[ModeSel]   Valid: SIMD(L=18, S=Clean, B=Std) | Cost=4.440000e+01
+[ModeSel]   Valid: SIMD(L=18, S=Clean, B=Ext) | Cost=7.120000e+01
+[ModeSel]   Valid: SIMD(L=18, S=Dirty, B=Std) | Cost=6.160000e+01
+[ModeSel]   Valid: SIMD(L=18, S=Dirty, B=Ext) | Cost=8.840000e+01
+[ModeSel]   Valid: SIMD(L=19, S=Clean, B=Std) | Cost=4.450000e+01
+[ModeSel]   Valid: SIMD(L=19, S=Clean, B=Ext) | Cost=7.190000e+01
+[ModeSel]   Valid: SIMD(L=19, S=Dirty, B=Std) | Cost=6.210000e+01
+[ModeSel]   Valid: SIMD(L=19, S=Dirty, B=Ext) | Cost=8.950000e+01
+[ModeSel]   Valid: SIMD(L=20, S=Clean, B=Std) | Cost=4.460000e+01
+[ModeSel]   Valid: SIMD(L=20, S=Clean, B=Ext) | Cost=7.260000e+01
+[ModeSel]   Valid: SIMD(L=20, S=Dirty, B=Std) | Cost=6.260000e+01
+[ModeSel]   Valid: SIMD(L=20, S=Dirty, B=Ext) | Cost=9.060000e+01
+[ModeSel]   Valid: SIMD(L=21, S=Clean, B=Std) | Cost=4.470000e+01
+[ModeSel]   Valid: SIMD(L=21, S=Clean, B=Ext) | Cost=7.330000e+01
+[ModeSel]   Valid: SIMD(L=21, S=Dirty, B=Std) | Cost=6.310000e+01
+[ModeSel]   Valid: SIMD(L=21, S=Dirty, B=Ext) | Cost=9.170000e+01
+[ModeSel]   Valid: SIMD(L=22, S=Clean, B=Std) | Cost=4.480000e+01
+[ModeSel]   Valid: SIMD(L=22, S=Clean, B=Ext) | Cost=7.400000e+01
+[ModeSel]   Valid: SIMD(L=22, S=Dirty, B=Std) | Cost=6.360000e+01
+[ModeSel]   Valid: SIMD(L=22, S=Dirty, B=Ext) | Cost=9.280000e+01
+[ModeSel]   Valid: SIMD(L=23, S=Clean, B=Std) | Cost=4.490000e+01
+[ModeSel]   Valid: SIMD(L=23, S=Clean, B=Ext) | Cost=7.470000e+01
+[ModeSel]   Valid: SIMD(L=23, S=Dirty, B=Std) | Cost=6.410000e+01
+[ModeSel]   Valid: SIMD(L=23, S=Dirty, B=Ext) | Cost=9.390000e+01
+[ModeSel]   Valid: SIMD(L=24, S=Clean, B=Std) | Cost=4.500000e+01
+[ModeSel]   Valid: SIMD(L=24, S=Clean, B=Ext) | Cost=7.540000e+01
+[ModeSel]   Valid: SIMD(L=24, S=Dirty, B=Std) | Cost=6.460000e+01
+[ModeSel]   Valid: SIMD(L=24, S=Dirty, B=Ext) | Cost=9.500000e+01
+[ModeSel]   Valid: SIMD(L=25, S=Clean, B=Std) | Cost=4.510000e+01
+[ModeSel]   Valid: SIMD(L=25, S=Clean, B=Ext) | Cost=7.610000e+01
+[ModeSel]   Valid: SIMD(L=25, S=Dirty, B=Std) | Cost=6.510000e+01
+[ModeSel]   Valid: SIMD(L=25, S=Dirty, B=Ext) | Cost=9.610000e+01
+[ModeSel]   Valid: SIMD(L=26, S=Clean, B=Std) | Cost=4.520000e+01
+[ModeSel]   Valid: SIMD(L=26, S=Clean, B=Ext) | Cost=7.680000e+01
+[ModeSel]   Valid: SIMD(L=26, S=Dirty, B=Std) | Cost=6.560000e+01
+[ModeSel]   Valid: SIMD(L=26, S=Dirty, B=Ext) | Cost=9.720000e+01
+[ModeSel]   Valid: SIMD(L=27, S=Clean, B=Std) | Cost=4.530000e+01
+[ModeSel]   Valid: SIMD(L=27, S=Clean, B=Ext) | Cost=7.750000e+01
+[ModeSel]   Valid: SIMD(L=27, S=Dirty, B=Std) | Cost=6.610000e+01
+[ModeSel]   Valid: SIMD(L=27, S=Dirty, B=Ext) | Cost=9.830000e+01
+[ModeSel]   Valid: SIMD(L=28, S=Clean, B=Std) | Cost=4.540000e+01
+[ModeSel]   Valid: SIMD(L=28, S=Clean, B=Ext) | Cost=7.820000e+01
+[ModeSel]   Valid: SIMD(L=28, S=Dirty, B=Std) | Cost=6.660000e+01
+[ModeSel]   Valid: SIMD(L=28, S=Dirty, B=Ext) | Cost=9.940000e+01
+[ModeSel]   Valid: SIMD(L=29, S=Clean, B=Std) | Cost=4.550000e+01
+[ModeSel]   Valid: SIMD(L=29, S=Clean, B=Ext) | Cost=7.890000e+01
+[ModeSel]   Valid: SIMD(L=29, S=Dirty, B=Std) | Cost=6.710000e+01
+[ModeSel]   Valid: SIMD(L=29, S=Dirty, B=Ext) | Cost=1.005000e+02
+[ModeSel]   Valid: SISD | Cost=4.960000e+01
+[ModeSel] Summary: simd.sub has 119 valid states.
+[ModeSel] [DP] Processing simd.encrypt
+[ModeSel]   Valid: SIMD(L=0, S=Clean, B=Std) | Cost=5.240000e+01
+[ModeSel]   Valid: SIMD(L=1, S=Clean, B=Std) | Cost=4.270000e+01
+[ModeSel]   Valid: SIMD(L=2, S=Clean, B=Std) | Cost=4.270000e+01
+[ModeSel]   Valid: SIMD(L=3, S=Clean, B=Std) | Cost=4.270000e+01
+[ModeSel]   Valid: SIMD(L=4, S=Clean, B=Std) | Cost=4.270000e+01
+[ModeSel]   Valid: SIMD(L=5, S=Clean, B=Std) | Cost=4.270000e+01
+[ModeSel]   Valid: SIMD(L=6, S=Clean, B=Std) | Cost=4.270000e+01
+[ModeSel]   Valid: SIMD(L=7, S=Clean, B=Std) | Cost=4.270000e+01
+[ModeSel]   Valid: SIMD(L=8, S=Clean, B=Std) | Cost=4.270000e+01
+[ModeSel]   Valid: SIMD(L=9, S=Clean, B=Std) | Cost=4.270000e+01
+[ModeSel]   Valid: SIMD(L=10, S=Clean, B=Std) | Cost=4.270000e+01
+[ModeSel]   Valid: SIMD(L=11, S=Clean, B=Std) | Cost=4.270000e+01
+[ModeSel]   Valid: SIMD(L=12, S=Clean, B=Std) | Cost=4.270000e+01
+[ModeSel]   Valid: SIMD(L=13, S=Clean, B=Std) | Cost=4.270000e+01
+[ModeSel]   Valid: SIMD(L=14, S=Clean, B=Std) | Cost=4.270000e+01
+[ModeSel]   Valid: SIMD(L=15, S=Clean, B=Std) | Cost=4.270000e+01
+[ModeSel]   Valid: SIMD(L=16, S=Clean, B=Std) | Cost=4.270000e+01
+[ModeSel]   Valid: SIMD(L=17, S=Clean, B=Std) | Cost=4.270000e+01
+[ModeSel]   Valid: SIMD(L=18, S=Clean, B=Std) | Cost=4.270000e+01
+[ModeSel]   Valid: SIMD(L=19, S=Clean, B=Std) | Cost=4.270000e+01
+[ModeSel]   Valid: SIMD(L=20, S=Clean, B=Std) | Cost=4.270000e+01
+[ModeSel]   Valid: SIMD(L=21, S=Clean, B=Std) | Cost=4.270000e+01
+[ModeSel]   Valid: SIMD(L=22, S=Clean, B=Std) | Cost=4.270000e+01
+[ModeSel]   Valid: SIMD(L=23, S=Clean, B=Std) | Cost=4.270000e+01
+[ModeSel]   Valid: SIMD(L=24, S=Clean, B=Std) | Cost=4.270000e+01
+[ModeSel]   Valid: SIMD(L=25, S=Clean, B=Std) | Cost=4.270000e+01
+[ModeSel]   Valid: SIMD(L=26, S=Clean, B=Std) | Cost=4.270000e+01
+[ModeSel]   Valid: SIMD(L=27, S=Clean, B=Std) | Cost=4.270000e+01
+[ModeSel]   Valid: SIMD(L=28, S=Clean, B=Std) | Cost=4.270000e+01
+[ModeSel]   Valid: SIMD(L=29, S=Clean, B=Std) | Cost=4.270000e+01
+[ModeSel]   Valid: SISD | Cost=4.520000e+01
+[ModeSel] Summary: simd.encrypt has 31 valid states.
+[ModeSel] [DP] Processing simd.encrypt
+[ModeSel]   Valid: SIMD(L=0, S=Clean, B=Std) | Cost=5.240000e+01
+[ModeSel]   Valid: SIMD(L=1, S=Clean, B=Std) | Cost=4.270000e+01
+[ModeSel]   Valid: SIMD(L=2, S=Clean, B=Std) | Cost=4.270000e+01
+[ModeSel]   Valid: SIMD(L=3, S=Clean, B=Std) | Cost=4.270000e+01
+[ModeSel]   Valid: SIMD(L=4, S=Clean, B=Std) | Cost=4.270000e+01
+[ModeSel]   Valid: SIMD(L=5, S=Clean, B=Std) | Cost=4.270000e+01
+[ModeSel]   Valid: SIMD(L=6, S=Clean, B=Std) | Cost=4.270000e+01
+[ModeSel]   Valid: SIMD(L=7, S=Clean, B=Std) | Cost=4.270000e+01
+[ModeSel]   Valid: SIMD(L=8, S=Clean, B=Std) | Cost=4.270000e+01
+[ModeSel]   Valid: SIMD(L=9, S=Clean, B=Std) | Cost=4.270000e+01
+[ModeSel]   Valid: SIMD(L=10, S=Clean, B=Std) | Cost=4.270000e+01
+[ModeSel]   Valid: SIMD(L=11, S=Clean, B=Std) | Cost=4.270000e+01
+[ModeSel]   Valid: SIMD(L=12, S=Clean, B=Std) | Cost=4.270000e+01
+[ModeSel]   Valid: SIMD(L=13, S=Clean, B=Std) | Cost=4.270000e+01
+[ModeSel]   Valid: SIMD(L=14, S=Clean, B=Std) | Cost=4.270000e+01
+[ModeSel]   Valid: SIMD(L=15, S=Clean, B=Std) | Cost=4.270000e+01
+[ModeSel]   Valid: SIMD(L=16, S=Clean, B=Std) | Cost=4.270000e+01
+[ModeSel]   Valid: SIMD(L=17, S=Clean, B=Std) | Cost=4.270000e+01
+[ModeSel]   Valid: SIMD(L=18, S=Clean, B=Std) | Cost=4.270000e+01
+[ModeSel]   Valid: SIMD(L=19, S=Clean, B=Std) | Cost=4.270000e+01
+[ModeSel]   Valid: SIMD(L=20, S=Clean, B=Std) | Cost=4.270000e+01
+[ModeSel]   Valid: SIMD(L=21, S=Clean, B=Std) | Cost=4.270000e+01
+[ModeSel]   Valid: SIMD(L=22, S=Clean, B=Std) | Cost=4.270000e+01
+[ModeSel]   Valid: SIMD(L=23, S=Clean, B=Std) | Cost=4.270000e+01
+[ModeSel]   Valid: SIMD(L=24, S=Clean, B=Std) | Cost=4.270000e+01
+[ModeSel]   Valid: SIMD(L=25, S=Clean, B=Std) | Cost=4.270000e+01
+[ModeSel]   Valid: SIMD(L=26, S=Clean, B=Std) | Cost=4.270000e+01
+[ModeSel]   Valid: SIMD(L=27, S=Clean, B=Std) | Cost=4.270000e+01
+[ModeSel]   Valid: SIMD(L=28, S=Clean, B=Std) | Cost=4.270000e+01
+[ModeSel]   Valid: SIMD(L=29, S=Clean, B=Std) | Cost=4.270000e+01
+[ModeSel]   Valid: SISD | Cost=4.520000e+01
+[ModeSel] Summary: simd.encrypt has 31 valid states.
+[ModeSel] 
 === [Phase 3] Selection & Rewrite ===
-Node simd.encrypt Chosen State: SIMD Level 1 (TotalCost=1.600000e+01)
-Node simd.encrypt Chosen State: SIMD Level 1 (TotalCost=1.600000e+01)
-Node simd.sub Chosen State: SIMD Level 1 (TotalCost=1.600000e+01)
-Node simd.mult Chosen State: SIMD Level 0 (TotalCost=7.000000e+00)
-Node simd.min Chosen State: SISD (TotalCost=2.500000e+00)
-  [Insert] Cast SIMD -> SISD
-Node simd.decrypt Chosen State: SISD (TotalCost=0.000000e+00)
+[ModeSel] Node simd.encrypt Selected: SIMD(L=1, S=Clean, B=Std)
+[ModeSel] Node simd.encrypt Selected: SIMD(L=1, S=Clean, B=Std)
+[ModeSel] Node simd.sub Selected: SIMD(L=1, S=Clean, B=Std)
+[ModeSel] Node simd.mult Selected: SIMD(L=1, S=Dirty, B=Ext)
+[ModeSel] Node simd.min Selected: SISD
+[ModeSel]   [Insert] Relin
+[ModeSel]   [Insert] Rescale
+[ModeSel]   [Insert] Cast SIMD->SISD
+[ModeSel] Node simd.decrypt Selected: SISD
 // -----// IR Dump After ConvertToMDSELPass (mode-select) //----- //
 module {
   llvm.mlir.global internal constant @str1("min: %f\0A\00") {addr_space = 0 : i32}
@@ -144,23 +573,25 @@ module {
     %3 = "polygeist.memref2pointer"(%alloca_0) : (memref<8xf64>) -> !llvm.ptr
     %4 = "polygeist.memref2pointer"(%alloca) : (memref<8xf64>) -> !llvm.ptr
     affine.for %arg0 = 0 to 8 {
-      %16 = arith.muli %arg0, %c8 : index
-      %17 = arith.index_cast %16 : index to i64
-      %18 = llvm.getelementptr %3[%17] : (!llvm.ptr, i64) -> !llvm.ptr, i8
-      %19 = llvm.getelementptr %4[%17] : (!llvm.ptr, i64) -> !llvm.ptr, i8
-      %20 = llvm.call @__isoc99_scanf(%2, %18, %19) vararg(!llvm.func<i32 (ptr, ...)>) : (!llvm.ptr, !llvm.ptr, !llvm.ptr) -> i32
+      %18 = arith.muli %arg0, %c8 : index
+      %19 = arith.index_cast %18 : index to i64
+      %20 = llvm.getelementptr %3[%19] : (!llvm.ptr, i64) -> !llvm.ptr, i8
+      %21 = llvm.getelementptr %4[%19] : (!llvm.ptr, i64) -> !llvm.ptr, i8
+      %22 = llvm.call @__isoc99_scanf(%2, %20, %21) vararg(!llvm.func<i32 (ptr, ...)>) : (!llvm.ptr, !llvm.ptr, !llvm.ptr) -> i32
     }
     %5 = vector.transfer_read %alloca_0[%c0], %cst {in_bounds = [true]} : memref<8xf64>, vector<8xf64>
-    %6 = simd.encrypt %5 : vector<8xf64> -> !simd.simdcipher<1 x 8 x i64>
+    %6 = simd.encrypt %5 : vector<8xf64> -> !simd.simdcipher<1 x 8 x i64, 1, 2>
     %7 = vector.transfer_read %alloca[%c0], %cst {in_bounds = [true]} : memref<8xf64>, vector<8xf64>
-    %8 = simd.encrypt %7 : vector<8xf64> -> !simd.simdcipher<1 x 8 x i64>
-    %9 = simd.sub %6 _ %8 : !simd.simdcipher<1 x 8 x i64>
-    %10 = simd.mult %9 * %9 : !simd.simdcipher<1 x 8 x i64>, !simd.simdcipher<1 x 8 x i64> -> !simd.simdcipher<0 x 8 x i64>
-    %11 = simd.cast_to_sisd %10 : !simd.simdcipher<0 x 8 x i64> -> !sisd.sisdcipher<1 x i64>
-    %12 = sisd.min %11 : !sisd.sisdcipher<1 x i64> -> !sisd.sisdcipher<1 x i64>
-    %13 = llvm.getelementptr %0[0, 0] : (!llvm.ptr) -> !llvm.ptr, !llvm.array<9 x i8>
-    %14 = sisd.decrypt %12 : !sisd.sisdcipher<1 x i64> -> f64
-    %15 = llvm.call @printf(%13, %14) vararg(!llvm.func<i32 (ptr, ...)>) : (!llvm.ptr, f64) -> i32
+    %8 = simd.encrypt %7 : vector<8xf64> -> !simd.simdcipher<1 x 8 x i64, 1, 2>
+    %9 = simd.sub %6 _ %8 : !simd.simdcipher<1 x 8 x i64, 1, 2>
+    %10 = simd.mult %9 * %9 : !simd.simdcipher<1 x 8 x i64, 1, 2>, !simd.simdcipher<1 x 8 x i64, 1, 2> -> !simd.simdcipher<1 x 8 x i64, 2, 3>
+    %11 = simd.relinearize %10 : !simd.simdcipher<1 x 8 x i64, 2, 3> -> !simd.simdcipher<1 x 8 x i64, 2, 2>
+    %12 = simd.rescale %11 : !simd.simdcipher<1 x 8 x i64, 2, 2> -> !simd.simdcipher<0 x 8 x i64, 1, 2>
+    %13 = simd.cast_to_sisd %12 : !simd.simdcipher<0 x 8 x i64, 1, 2> -> !sisd.sisdcipher<1 x i64, 1>
+    %14 = sisd.min %13 : !sisd.sisdcipher<1 x i64, 1> -> !sisd.sisdcipher<1 x i64, 1>
+    %15 = llvm.getelementptr %0[0, 0] : (!llvm.ptr) -> !llvm.ptr, !llvm.array<9 x i8>
+    %16 = sisd.decrypt %14 : !sisd.sisdcipher<1 x i64, 1> -> f64
+    %17 = llvm.call @printf(%15, %16) vararg(!llvm.func<i32 (ptr, ...)>) : (!llvm.ptr, f64) -> i32
     return %c0_i32 : i32
   }
 }

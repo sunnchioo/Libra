@@ -14,24 +14,24 @@ class SISD_Type<string name, string typeMnemonic, list<Trait> traits = []>
 }
 
 def SISD_SISDCipherType : SISD_Type<"SISDCipher", "sisdcipher"> {
-  let summary = "Ciphertext type with element type and plaintext count";
+  let summary = "Ciphertext type with element type, plaintext count and scale";
   let description = [{
-    Represents a ciphertext encoding a fixed number of plaintexts.
+    Represents a TFHE/LWE ciphertext.
 
     Syntax:
-      !sisd.sisdcipher<Nxetype>
+      !sisd.sisdcipher<N x elementType, scale>
 
     Example:
-      !sisd.sisdcipher<8xi64>
-      !sisd.sisdcipher<1xf64>
+      !sisd.sisdcipher<8xi64, 1> // 8 LWE ciphertexts, Scale 1 (Clean)
   }];
 
   let parameters = (ins
     "int64_t":$plaintextCount,
-    "Type":$elementType
+    "Type":$elementType,
+    "int64_t":$scale // Usually 1, can be used to track noise level conceptually
   );
 
-  let assemblyFormat = "`<`$plaintextCount`x`$elementType`>`";
+  let assemblyFormat = "`<` $plaintextCount `x` $elementType `,` $scale `>`";
 }
 
 #endif // IR_SISDTYPES_TD_

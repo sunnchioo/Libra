@@ -70,6 +70,18 @@ def SISDCastSISDCipherToSIMDCipherOp : SISD_Op<"cast_to_simd", [Pure]> {
   let assemblyFormat = "$input attr-dict `:` type($input) `->` type($result)";
 }
 
+def SISDRefreshOp : SISD_Op<"refresh", [Pure]> {
+  let summary = "Refresh the noise budget of a SISD ciphertext (Bootstrapping).";
+  let description = [{
+    Performs Programmable Bootstrapping (PBS) with an identity function to reduce noise.
+  }];
+
+  let arguments = (ins AnyType:$input);
+  let results = (outs AnyType:$result);
+
+  let assemblyFormat = "$input attr-dict `:` type($input) `->` type($result)";
+}
+
 def SISDLoadOp : SISD_Op<"load"> {
     let summary = "Load a SISD cipher value";
     let arguments = (ins AnyType:$src);

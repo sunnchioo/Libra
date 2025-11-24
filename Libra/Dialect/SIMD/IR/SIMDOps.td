@@ -114,6 +114,55 @@ def SIMDBootOp : SIMD_Op<"boot", [Pure]> {
     }];
 }
 
+// --- Advanced FHE Operations for Compiler Optimization ---
+
+def SIMDRescaleOp : SIMD_Op<"rescale", [Pure]> {
+  let summary = "Rescale a ciphertext, consuming one level to reduce the scaling factor.";
+  let description = [{
+    Operation that divides the ciphertext message by the last modulus in the RNS chain.
+    This is used to reduce the 'Scale' from Delta^2 (Dirty) back to Delta (Clean).
+    
+    Side Effect: Reduces the level by 1.
+    Input: !simd.simdcipher<L x Dirty x T>
+    Output: !simd.simdcipher<L-1 x Clean x T>
+  }];
+
+  let arguments = (ins AnyType:$input);
+  let results = (outs AnyType:$result);
+
+  let assemblyFormat = "$input attr-dict `:` type($input) `->` type($result)";
+}
+
+def SIMDRelinOp : SIMD_Op<"relinearize", [Pure]> {
+  let summary = "Relinearize a ciphertext to reduce its size (basis).";
+  let description = [{
+    Reduces the number of polynomials in the ciphertext (e.g., from 3 to 2) after multiplication.
+    This operation is expensive but necessary to prevent ciphertext expansion.
+    
+    Input: !simd.simdcipher<L x S x Extended>
+    Output: !simd.simdcipher<L x S x Standard>
+  }];
+
+  let arguments = (ins AnyType:$input);
+  let results = (outs AnyType:$result);
+
+  let assemblyFormat = "$input attr-dict `:` type($input) `->` type($result)";
+}
+
+def SIMDModSwitchOp : SIMD_Op<"mod_switch", [Pure]> {
+  let summary = "Explicitly drop levels without rescaling.";
+  let description = [{
+    Drops the modulus chain to a lower level without changing the scale.
+    Used for aligning levels between two operands of an Add/Sub operation.
+    Cost is usually negligible.
+  }];
+
+  let arguments = (ins AnyType:$input);
+  let results = (outs AnyType:$result);
+
+  let assemblyFormat = "$input attr-dict `:` type($input) `->` type($result)";
+}
+
 def SIMDLoadOp : SIMD_Op<"load"> {
     let summary = "Load a SIMD cipher value";
     let arguments = (ins AnyType:$src);
