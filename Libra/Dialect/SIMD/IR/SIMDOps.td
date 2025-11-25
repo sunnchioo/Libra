@@ -114,8 +114,6 @@ def SIMDBootOp : SIMD_Op<"boot", [Pure]> {
     }];
 }
 
-// --- Advanced FHE Operations for Compiler Optimization ---
-
 def SIMDRescaleOp : SIMD_Op<"rescale", [Pure]> {
   let summary = "Rescale a ciphertext, consuming one level to reduce the scaling factor.";
   let description = [{

@@ -20,7 +20,8 @@ namespace mlir::libra::simd {
 
     namespace {
 
-        // static constexpr int64_t DEFAULT_LEVEL = 12;
+        // [Fix] Define default level
+        static constexpr int64_t DEFAULT_LEVEL = 31;
 
         /// 封装通用类型转换：SCFHE → SIMD
         static FailureOr<SIMDCipherType> convertToSIMDType(Type t, MLIRContext* ctx,
@@ -28,7 +29,7 @@ namespace mlir::libra::simd {
             if (auto st = dyn_cast<SIMDCipherType>(t))
                 return st;
             if (auto st = dyn_cast<scfhe::SCFHECipherType>(t))
-                // [Fix] Added Scale=1, Basis=2
+                // [Fix] Added Scale=1 (Clean), Basis=2 (Standard)
                 return SIMDCipherType::get(ctx, level, st.getPlaintextCount(), st.getElementType(), 1, 2);
             return failure();
         }
@@ -40,15 +41,16 @@ namespace mlir::libra::simd {
             auto tb = convertToSIMDType(b.getType(), ctx);
             if (failed(ta) || failed(tb))
                 return failure();
+
+            // [Fix] Use arrow operator -> to access FailureOr value
             int64_t newLevel = std::min(ta->getLevel(), tb->getLevel());
             if (reduceLevel)
                 newLevel = std::max<int64_t>(0, newLevel - 1);
+
             int64_t newPC = std::min(ta->getPlaintextCount(), tb->getPlaintextCount());
 
-            // [Fix] Added Scale=1, Basis=2. (Assumption: Initial conversion produces standard types)
-            // If this inference is for Mult, reduceLevel=true implies consumption, output might be Dirty?
-            // However, this pass seems to be a basic lowering pass (SCFHE->SIMD), not the advanced ModeSelectPass.
-            // So setting default Clean/Standard is safer for initial IR generation.
+            // [Fix] Added Scale=1, Basis=2.
+            // For Mult/Sub phase 1 conversion, we assume Clean/Standard output initially.
             return SIMDCipherType::get(ctx, newLevel, newPC, ta->getElementType(), 1, 2);
         }
 

@@ -30,8 +30,8 @@ module {
     %10 = simd.mult %9 * %9 : !simd.simdcipher<1 x 8 x i64, 1, 2>, !simd.simdcipher<1 x 8 x i64, 1, 2> -> !simd.simdcipher<1 x 8 x i64, 2, 3>
     %11 = simd.relinearize %10 : !simd.simdcipher<1 x 8 x i64, 2, 3> -> !simd.simdcipher<1 x 8 x i64, 2, 2>
     %12 = simd.rescale %11 : !simd.simdcipher<1 x 8 x i64, 2, 2> -> !simd.simdcipher<0 x 8 x i64, 1, 2>
-    %13 = simd.cast_to_sisd %12 : !simd.simdcipher<0 x 8 x i64, 1, 2> -> !sisd.sisdcipher<1 x i64, 1>
-    %14 = sisd.min %13 : !sisd.sisdcipher<1 x i64, 1> -> !sisd.sisdcipher<1 x i64, 1>
+    %13 = simd.cast_to_sisd %12 : !simd.simdcipher<0 x 8 x i64, 1, 2> -> !sisd.sisdcipher<8 x i64, 1>
+    %14 = sisd.min %13 : !sisd.sisdcipher<8 x i64, 1> -> !sisd.sisdcipher<1 x i64, 1>
     %15 = llvm.getelementptr %0[0, 0] : (!llvm.ptr) -> !llvm.ptr, !llvm.array<9 x i8>
     %16 = sisd.decrypt %14 : !sisd.sisdcipher<1 x i64, 1> -> f64
     %17 = llvm.call @printf(%15, %16) vararg(!llvm.func<i32 (ptr, ...)>) : (!llvm.ptr, f64) -> i32

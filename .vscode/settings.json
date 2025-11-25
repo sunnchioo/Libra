@@ -106,7 +106,8 @@
         "syncstream": "cpp",
         "coroutine": "cpp",
         "expected": "cpp",
-        "sim_stl_pair": "cpp"
+        "sim_stl_pair": "cpp",
+        "*.1ddpv1": "cpp"
     },
     "[tablegen]": {
         "editor.defaultFormatter": "ms-vscode.cpptools",
