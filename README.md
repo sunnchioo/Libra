@@ -128,15 +128,11 @@ cmake -G Ninja ..
 ninja
 ```
 
-## Experiment Evaluation
+## Usage
 
-The benchmarks for this artifact are in the `Libra_full_bench` directory. It has 
-two parts: `Microbenchmarks` and `Applications`, covering all experiments in the 
-paper. Benchmark source programs are provided in plaintext C, Libra compiles them 
-into FHE CUDA C++ implementations. The scripts in `Security_Artifact/Libra/Script` 
-can automatically convert them into the target FHE CUDA C++ code. 
-
-You can reproduce the final experimental results using the steps below.
+The scripts in `Security_Artifact/Libra/Script` can convert a C program into the target
+FHE CUDA C++ code through three stages: **frontend (C → MLIR)**, **middle-end (MLIR opt)**, and
+**backend (MLIR → CUDA C++)**.
 
 ### 1. Generate code
 
@@ -145,29 +141,27 @@ Here are the steps to run the scripts and generate the FHE CUDA C++ code.
 (1) Run the Libra frontend script.
 ```bash
 cd Security_Artifact/Libra
-./Script/libra-mlir.sh
+./Script/libra-mlir.sh <input.c> <output.mlir>
 ```
 
 (2) Run the Libra middle-end script.
 ```bash
 cd Security_Artifact/Libra
-./Script/libra-opt.sh
+./Script/libra-opt.sh <input.mlir> <output.opt.mlir>
 ```
 
 (3) Run the Libra backend script.
 ```bash
 cd Security_Artifact/Libra
-./Script/libra-translate.sh
+./Script/libra-translate.sh <input.opt.mlir> <output.cu>
 ```
 
-After that, the generated target code will be written to `Security_Artifact/Libra/HElib/FlyHE/compiled`. 
-Each subdirectory contains the corresponding FHE CUDA C++ code.
+After these three steps, the final generated code is the `.cu` file.
 
-### 2. Building Libra Compiled Code
+### 2. Build the generated code
 
-The compiled code can be found in `Security_Artifact/Libra/HElib/FlyHE/compiled`. 
-The next step is to compile them with the foundational FHE libraries `FlyHE` to generate 
-the executable using the following command.
+The generated CUDA C++ code is compiled together with the foundational FHE library `FlyHE`
+to produce executables.
 
 ```bash
 cd Security_Artifact/Libra/HElib/FlyHE
@@ -176,6 +170,8 @@ cd build
 cmake ..
 make -j
 ```
+
+The build artifacts (executables/libraries) will be produced under the `build` directory.
 
 ## Appendix
 
