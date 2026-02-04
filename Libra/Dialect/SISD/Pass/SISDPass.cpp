@@ -1,0 +1,91 @@
+#include "mlir/Dialect/Arith/IR/Arith.h"
+#include "mlir/Dialect/Func/IR/FuncOps.h"
+#include "mlir/Dialect/MemRef/IR/MemRef.h"
+#include "mlir/IR/PatternMatch.h"
+#include "mlir/Pass/Pass.h"
+#include "mlir/Rewrite/FrozenRewritePatternSet.h"
+#include "mlir/Transforms/GreedyPatternRewriteDriver.h"
+
+#include "SIMDOps.h"
+#include "SIMDTypes.h"
+
+#include "SISDDialect.h"
+#include "SISDOps.h"
+#include "SISDPass.h"
+
+#include "SIMDCommon.h"
+
+using namespace mlir;
+using namespace mlir::libra;
+
+namespace mlir::libra::sisd {
+
+#define GEN_PASS_DEF_CONVERTTOSISDPASS
+#include "SISDPass.h.inc"
+
+    namespace {
+
+        /// ==================== Convert SIMD.min -> SISD.min ==================== ///
+        class ConvertSIMDMinToSISDPattern : public OpRewritePattern<simd::SIMDMinOp> {
+        public:
+            using OpRewritePattern::OpRewritePattern;
+            LogicalResult matchAndRewrite(simd::SIMDMinOp op,
+                                          PatternRewriter& rewriter) const override {
+                Location loc = op.getLoc();
+
+                // 0. 检查 op 的操作数和 result 类型（假设 simd.min 只有一个 operand）
+                if (op->getNumOperands() != 1)
+                    return failure();
+
+                Value operand = op.getOperand();
+                Type operandType = operand.getType();
+
+                // 必须是 simd::SIMDCipherType
+                auto simdInType = dyn_cast<simd::SIMDCipherType>(operandType);
+                if (!simdInType)
+                    return failure();
+
+                MLIRContext* ctx = rewriter.getContext();
+                Type elemType = simdInType.getElementType();
+                int64_t level = simdInType.getLevel();
+                int64_t plaintextCount = simdInType.getPlaintextCount();
+
+                // --- 1. Cast to SISD: drop SIMD-level dimension ---
+                auto sisdInType = sisd::SISDCipherType::get(ctx, plaintextCount, elemType);
+                Value sisdInput = rewriter.create<simd::SIMDCastSIMDCipherToSISDCipherOp>(
+                    loc, sisdInType, operand);
+
+                // --- 2. SISD.min ---
+                auto sisdResultType = sisd::SISDCipherType::get(ctx, /*plaintextCount=*/1, elemType);
+                auto newSISDMin = rewriter.create<sisd::SISDMinOp>(
+                    loc, sisdResultType, sisdInput);
+
+                // --- 3. Cast back to SIMD: restore level dimension ---
+                int SIMD_DEFAULT_LEVEL = simd::DEFAULT_LEVEL;
+                auto simdOutType = simd::SIMDCipherType::get(ctx, SIMD_DEFAULT_LEVEL, /*plaintextCount=*/1, elemType);
+                Value castBackToSIMD = rewriter.create<sisd::SISDCastSISDCipherToSIMDCipherOp>(
+                    loc, simdOutType, newSISDMin);
+
+                rewriter.replaceOp(op, castBackToSIMD);
+                return success();
+            }
+        };
+
+        /// ==================== Main Pass ==================== ///
+        class ConvertToSISDIR : public impl::ConvertToSISDPassBase<ConvertToSISDIR> {
+        public:
+            using impl::ConvertToSISDPassBase<ConvertToSISDIR>::ConvertToSISDPassBase;
+
+            void runOnOperation() final {
+                auto module = getOperation();
+                MLIRContext* context = &getContext();
+
+                RewritePatternSet patterns(context);
+                patterns.add<ConvertSIMDMinToSISDPattern>(context);
+
+                (void)applyPatternsGreedily(module, std::move(patterns));
+            }
+        };
+
+    }  // namespace
+}  // namespace mlir::libra::sisd

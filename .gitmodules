@@ -1,0 +1,13 @@
+[submodule "HElib/FlyHE"]
+	path = HElib/FlyHE
+	url = https://github.com/sunnchioo/FlyHE.git
+	branch = libra
+	shallow = true
+[submodule "Tool/Polygeist"]
+	path = Tool/Polygeist
+	url = https://github.com/llvm/Polygeist.git
+	shallow = true
+[submodule "Tool/llvm-project"]
+	path = Tool/llvm-project
+	url = https://github.com/llvm/llvm-project.git
+	shallow = true
