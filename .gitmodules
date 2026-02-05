@@ -3,11 +3,9 @@
 	url = https://github.com/sunnchioo/FlyHE.git
 	branch = libra
 	shallow = true
-[submodule "Tool/Polygeist"]
-	path = Tool/Polygeist
-	url = git@github.com:llvm/Polygeist.git
-	shallow = true
 [submodule "Tool/llvm-project"]
 	path = Tool/llvm-project
-	url = https://github.com/llvm/llvm-project.git
-	shallow = true
+	url = git@github.com:sunnchioo/llvm-project.git
+[submodule "Tool/Polygeist"]
+	path = Tool/Polygeist
+	url = git@github.com:sunnchioo/Polygeist.git
