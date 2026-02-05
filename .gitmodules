@@ -1,6 +1,6 @@
 [submodule "HElib/FlyHE"]
 	path = HElib/FlyHE
-	url = https://github.com/sunnchioo/FlyHE.git
+	url = git@github.com:sunnchioo/FlyHE.git
 	branch = libra
 	shallow = true
 [submodule "Tool/llvm-project"]
