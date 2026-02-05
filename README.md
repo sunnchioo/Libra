@@ -1,10 +1,11 @@
 # About Libra
-This artifact provides the source code and evaluation scripts for the 
-paper Libra: Pattern-Scheduling Co-Optimization for Cross-Scheme FHE Code 
-Generation over GPGPU. Libra is an end-to-end fully homomorphic encryption (FHE) 
-compiler for GPGPUs that transforms high-level C programs into efficient GPU 
-FHE implementations. Libra automates efficient code generation by coupling 
-cross-scheme computational patterns with hardware-aware scheduling strategies.
+This repository hosts the implementation and scripts for Libra, described in:
+> Libra: Pattern-Scheduling Co-Optimization for Cross-Scheme FHE Code Generation over GPGPU
+
+Libra is an end-to-end fully homomorphic encryption (FHE) compiler for GPGPUs. It takes high-level 
+C programs as input and generates efficient GPU-based FHE implementations by co-optimizing cross-scheme 
+computational patterns and hardware-aware GPU scheduling. 
+This repository is under active development.
 
 # Repository's Structure
 
