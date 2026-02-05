@@ -4,7 +4,7 @@ This repository hosts the implementation and scripts for Libra, described in:
 
 Libra is an end-to-end fully homomorphic encryption (FHE) compiler for GPGPUs. It takes high-level 
 C programs as input and generates efficient GPU-based FHE implementations by co-optimizing cross-scheme 
-computational patterns and hardware-aware GPU scheduling. 
+computation patterns and hardware-aware GPU scheduling. 
 This repository is under active development.
 
 # Repository's Structure
