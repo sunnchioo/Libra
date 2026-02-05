@@ -66,9 +66,6 @@ The following libraries must be installed or pre-compiled:
 * **LLVM & MLIR** >= 22.0
 * **NTL (Number Theory Library)** >= 11.5.1
 * **GMP (GNU Multi-Precision Library)** >= 6.2.1
-* **Python** >= 3.10
-* **matplotlib** >= 3.10.6
-* **pandas** >= 2.3.3
 
 
 ### Project Language Standards
