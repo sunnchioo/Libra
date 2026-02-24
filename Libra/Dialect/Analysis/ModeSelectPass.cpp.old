@@ -1,3 +1,8 @@
+//===----------------------------------------------------------------------===//
+// ModeSelectPass.cpp
+// Optimized Iterative Mode Selection with Slim Boot Pruning & Broadcast Costs
+//===----------------------------------------------------------------------===//
+
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/BuiltinOps.h"
@@ -16,7 +21,6 @@
 #include "llvm/Support/raw_ostream.h"
 #include "llvm/Support/MemoryBuffer.h"
 #include "llvm/Support/CommandLine.h"
-#include "llvm/Support/Debug.h"
 
 #include "ModeSelectPass.h"
 #include "SIMDOps.h"
@@ -30,9 +34,6 @@
 #include <vector>
 #include <string>
 #include <memory>
-
-// [新增] 定义 DEBUG_TYPE，用于命令行 --debug-only=mode-select 触发
-#define DEBUG_TYPE "mode-select"
 
 using namespace mlir;
 using namespace mlir::libra;
@@ -71,12 +72,12 @@ namespace mlir::libra::mdsel {
                 // 简单的 JSON 加载逻辑
                 auto fileOrErr = llvm::MemoryBuffer::getFile(jsonFilename);
                 if (auto ec = fileOrErr.getError()) {
-                    LLVM_DEBUG(llvm::dbgs() << "[ModeSel] Error opening file: " << ec.message() << "\n");
+                    llvm::errs() << "[ModeSel] Error opening file: " << ec.message() << "\n";
                     return;
                 }
                 llvm::Expected<llvm::json::Value> rootOrErr = llvm::json::parse(fileOrErr.get()->getBuffer());
                 if (!rootOrErr) {
-                    LLVM_DEBUG(llvm::dbgs() << "[ModeSel] JSON parse error\n");
+                    llvm::errs() << "[ModeSel] JSON parse error\n";
                     return;
                 }
                 auto* obj = rootOrErr->getAsObject();
@@ -108,7 +109,6 @@ namespace mlir::libra::mdsel {
                         }
                     }
                 }
-                LLVM_DEBUG(llvm::dbgs() << "[ModeSel] CostTable loaded successfully from " << jsonFilename << "\n");
             }
 
             double lookup(StringRef key, int64_t idx) const {
@@ -178,8 +178,11 @@ namespace mlir::libra::mdsel {
                 if (!CostTablePath.empty()) {
                     return CostTablePath;
                 }
+
                 return "cost_table.json";
             }
+
+            // ... (Includes and other structs remain the same) ...
 
             // Helper for printing Op names concisely
             std::string getOpName(Operation* op) {
@@ -190,17 +193,12 @@ namespace mlir::libra::mdsel {
                 ModuleOp module = getOperation();
                 CostModel costModel(getOptionFilePath());
 
+                // [DEBUG] 开关
+                bool debugMode = true;
+
                 for (func::FuncOp func : module.getOps<func::FuncOp>()) {
-
-                    if (func.getName() != "main") {
-                        continue;
-                    }
-
-                    LLVM_DEBUG({
-                        llvm::dbgs() << "\n=================================================================\n";
-                        llvm::dbgs() << "[ModeSel] Processing Function: @" << func.getName() << "\n";
-                        llvm::dbgs() << "=================================================================\n";
-                    });
+                    if (debugMode)
+                        llvm::errs() << "\n[ModeSel] Processing Function: " << func.getName() << "\n";
 
                     // ------------------------------------------------------------
                     // 1. Build Graph & Topological Sort
@@ -213,10 +211,8 @@ namespace mlir::libra::mdsel {
                         if (ns == "simd" || ns == "sisd")
                             ops.push_back(op);
                     });
-                    if (ops.empty()) {
-                        LLVM_DEBUG(llvm::dbgs() << "  -> No SIMD/SISD ops found, skipping.\n");
+                    if (ops.empty())
                         continue;
-                    }
 
                     llvm::DenseMap<Operation*, SmallVector<Operation*, 4>> preds, succs;
                     for (Operation* op : ops) {
@@ -249,13 +245,6 @@ namespace mlir::libra::mdsel {
                         }
                     }
 
-                    LLVM_DEBUG({
-                        llvm::dbgs() << "\n[Graph] Topological Sort Result (" << topo.size() << " nodes):\n";
-                        for (Operation* op : topo) {
-                            llvm::dbgs() << "  - " << getOpName(op) << " (Preds: " << preds[op].size() << ")\n";
-                        }
-                    });
-
                     // ------------------------------------------------------------
                     // 2. Initialize State
                     // ------------------------------------------------------------
@@ -282,12 +271,12 @@ namespace mlir::libra::mdsel {
                     int iter = 0;
 
                     while (changed && iter < MAX_ITERATIONS) {
-                        LLVM_DEBUG(llvm::dbgs() << "\n>>> --- Iteration " << iter << " Start --- <<<\n");
+                        if (debugMode)
+                            llvm::errs() << "\n--- Iteration " << iter << " Start ---\n";
                         changed = false;
                         iter++;
 
                         // === Phase 1: Top-Down (Greedy Allocation) ===
-                        LLVM_DEBUG(llvm::dbgs() << "  [Phase 1] Top-Down Greedy Allocation:\n");
                         for (Operation* op : topo) {
                             auto& nd = info[op];
                             int64_t vecCnt = nd.vectorCount;
@@ -320,12 +309,10 @@ namespace mlir::libra::mdsel {
                             double total_SIMD = cSIMD + castIn_SIMD;
                             double total_SISD = cSISD + castIn_SISD;
 
-                            LLVM_DEBUG({
-                                llvm::dbgs() << "    Eval: " << getOpName(op) << "\n"
-                                             << "      L_in=" << l_in << ", mustBoot=" << (mustBoot ? "Yes" : "No") << "\n"
-                                             << "      Cost -> SIMD: " << total_SIMD << " (Op:" << cSIMD << "+Cast:" << castIn_SIMD << ")\n"
-                                             << "      Cost -> SISD: " << total_SISD << " (Op:" << cSISD << "+Cast:" << castIn_SISD << ")\n";
-                            });
+                            // [DEBUG] Phase 1 Details
+                            // llvm::errs() << "  [P1] " << getOpName(op) << " L_in=" << l_in
+                            //              << " MustBoot=" << mustBoot
+                            //              << " Cost(SIMD=" << total_SIMD << ", SISD=" << total_SISD << ")\n";
 
                             // 5. Greedy Decision
                             int opDepth = isa<simd::SIMDMultOp>(op) ? 1 : 0;
@@ -333,27 +320,26 @@ namespace mlir::libra::mdsel {
                             if (total_SISD <= total_SIMD) {
                                 // Prefer SISD
                                 if (nd.mode != Mode::SISD) {
-                                    LLVM_DEBUG(llvm::dbgs() << "      => Decision: Switched to SISD (Cheaper)\n");
+                                    if (debugMode)
+                                        llvm::errs() << "    -> " << getOpName(op) << " switched to SISD (Cheaper)\n";
                                     nd.mode = Mode::SISD;
                                     changed = true;
-                                } else {
-                                    LLVM_DEBUG(llvm::dbgs() << "      => Decision: Kept SISD\n");
                                 }
                                 nd.finalLevel = l_in;
                                 nd.triggerBoot = false;
                             } else {
                                 // Prefer SIMD
                                 if (nd.mode != Mode::SIMD) {
-                                    LLVM_DEBUG(llvm::dbgs() << "      => Decision: Switched to SIMD\n");
+                                    if (debugMode)
+                                        llvm::errs() << "    -> " << getOpName(op) << " switched to SIMD\n";
                                     nd.mode = Mode::SIMD;
                                     changed = true;
-                                } else {
-                                    LLVM_DEBUG(llvm::dbgs() << "      => Decision: Kept SIMD\n");
                                 }
 
                                 // Update Boot Logic
                                 if (!nd.triggerBoot && mustBoot) {
-                                    LLVM_DEBUG(llvm::dbgs() << "      => [BOOT TRIGGERED] L_in(" << l_in << ") <= " << SLIM_BOOT_TRIGGER << "\n");
+                                    if (debugMode)
+                                        llvm::errs() << "    -> " << getOpName(op) << " Trigger Boot set to TRUE (Input Level " << l_in << " <= " << SLIM_BOOT_TRIGGER << ")\n";
                                     nd.triggerBoot = true;
                                     changed = true;
                                 }
@@ -371,7 +357,6 @@ namespace mlir::libra::mdsel {
                         }
 
                         // === Phase 2: Bottom-Up (Pruning & Refinement) ===
-                        LLVM_DEBUG(llvm::dbgs() << "  [Phase 2] Bottom-Up Pruning & Refinement:\n");
                         for (auto it = topo.rbegin(); it != topo.rend(); ++it) {
                             Operation* op = *it;
                             auto& nd = info[op];
@@ -404,11 +389,14 @@ namespace mlir::libra::mdsel {
                                 int opDepth = isa<simd::SIMDMultOp>(op) ? 1 : 0;
                                 int needed = l_req + opDepth;
 
-                                LLVM_DEBUG(llvm::dbgs() << "    Checking Prune: " << getOpName(op)
-                                                        << " -> Available(" << SLIM_BOOT_TRIGGER << ") >= Needed(" << needed << ")?\n");
+                                // [DEBUG] Check Pruning
+                                // llvm::errs() << "  [P2] Checking Prune " << getOpName(op)
+                                //              << ": Available(3) >= Needed(" << needed << ")?\n";
 
                                 if (SLIM_BOOT_TRIGGER >= needed) {
-                                    LLVM_DEBUG(llvm::dbgs() << "      [PRUNE SUCCESS] Boot Cancelled for " << getOpName(op) << "!\n");
+                                    if (debugMode)
+                                        llvm::errs() << "    [PRUNE] " << getOpName(op) << ": Boot Cancelled! "
+                                                     << "Available(" << SLIM_BOOT_TRIGGER << ") >= Needed(" << needed << ")\n";
                                     nd.triggerBoot = false; // Prune!
                                     changed = true;
 
@@ -446,8 +434,9 @@ namespace mlir::libra::mdsel {
                                 double costSwitch = opCostSIMD + castOutSIMD;
 
                                 if (costSwitch < costCurr) {
-                                    LLVM_DEBUG(llvm::dbgs() << "    [REFINE SUCCESS] " << getOpName(op) << ": SISD -> SIMD "
-                                                            << "(Switch=" << costSwitch << " < Stay=" << costCurr << ")\n");
+                                    if (debugMode)
+                                        llvm::errs() << "    [REFINE] " << getOpName(op) << ": SISD -> SIMD "
+                                                     << "(Switch=" << costSwitch << " < Stay=" << costCurr << ")\n";
                                     nd.mode = Mode::SIMD;
                                     nd.triggerBoot = localNeedBoot;
                                     if (nd.triggerBoot)
@@ -460,21 +449,21 @@ namespace mlir::libra::mdsel {
                         }
                     } // End While
 
-                    LLVM_DEBUG({
-                        llvm::dbgs() << "\n>>> --- Final Converged State (@" << func.getName() << ") --- <<<\n";
+                    if (debugMode)
+                        llvm::errs() << "--- Final Converged State ---\n";
+                    if (debugMode) {
                         for (auto* op : topo) {
                             auto& nd = info[op];
-                            llvm::dbgs() << "  " << getOpName(op) << ": "
+                            llvm::errs() << getOpName(op) << ": "
                                          << (nd.mode == Mode::SIMD ? "SIMD" : "SISD")
                                          << ", Level=" << nd.finalLevel
                                          << ", Boot=" << (nd.triggerBoot ? "YES" : "NO") << "\n";
                         }
-                    });
+                    }
 
                     // ------------------------------------------------------------
                     // 4. Rewrite IR
                     // ------------------------------------------------------------
-                    LLVM_DEBUG(llvm::dbgs() << "\n[Rewrite] Starting IR Materialization...\n");
                     IRRewriter rewriter(module.getContext());
                     llvm::DenseMap<Value, Value> rewriteMap;
 
@@ -482,9 +471,6 @@ namespace mlir::libra::mdsel {
                         auto& nd = info[op];
                         rewriter.setInsertionPoint(op);
                         SmallVector<Value, 4> newOps;
-
-                        LLVM_DEBUG(llvm::dbgs() << "  Rewriting: " << getOpName(op) << " -> "
-                                                << (nd.mode == Mode::SIMD ? "SIMD" : "SISD") << "\n");
 
                         // === Step A: Prepare Operands (Cast & Boot) ===
 
@@ -501,38 +487,36 @@ namespace mlir::libra::mdsel {
                             if (!nv)
                                 nv = v;
 
+                            bool isSrcSISD = isa<sisd::SISDCipherType>(nv.getType());
                             bool isDstSISD = (nd.mode == Mode::SISD);
+                            bool isDecrypt = isa<simd::SIMDDecryptOp, sisd::SISDDecryptOp>(op);
 
-                            // 【核心修复】：只有当输入真的是密文时，才执行转换检查
-                            if (isa<simd::SIMDCipherType, sisd::SISDCipherType>(nv.getType())) {
-                                bool isSrcSISD = isa<sisd::SISDCipherType>(nv.getType());
-
-                                // 1. 跨方案 Cast
+                            if (!isDecrypt) {
+                                // 处理 SISD <-> SIMD 转换
                                 if (isSrcSISD && !isDstSISD) {
                                     auto tt = cast<sisd::SISDCipherType>(nv.getType());
                                     auto dstTy = simd::SIMDCipherType::get(op->getContext(), reqInputLevel, tt.getPlaintextCount(), tt.getElementType());
-                                    LLVM_DEBUG(llvm::dbgs() << "    - Inserting Cast: SISD -> SIMD\n");
                                     nv = rewriter.create<sisd::SISDCastSISDCipherToSIMDCipherOp>(op->getLoc(), dstTy, nv).getResult();
                                 } else if (!isSrcSISD && isDstSISD) {
                                     auto st = cast<simd::SIMDCipherType>(nv.getType());
                                     auto dstTy = sisd::SISDCipherType::get(op->getContext(), st.getPlaintextCount(), st.getElementType());
-                                    LLVM_DEBUG(llvm::dbgs() << "    - Inserting Cast: SIMD -> SISD\n");
                                     nv = rewriter.create<simd::SIMDCastSIMDCipherToSISDCipherOp>(op->getLoc(), dstTy, nv).getResult();
                                 }
+                            }
 
-                                // 2. 处理 Bootstrapping
-                                if (nd.triggerBoot && nd.mode == Mode::SIMD && isa<simd::SIMDCipherType>(nv.getType())) {
-                                    auto oldTy = cast<simd::SIMDCipherType>(nv.getType());
-                                    auto bootedTy = simd::SIMDCipherType::get(op->getContext(), BOOT_LEVEL, oldTy.getPlaintextCount(), oldTy.getElementType());
-                                    LLVM_DEBUG(llvm::dbgs() << "    - Inserting Bootstrapping (Target Level " << BOOT_LEVEL << ")\n");
-                                    nv = rewriter.create<simd::SIMDBootOp>(op->getLoc(), bootedTy, nv).getResult();
-                                }
+                            // 处理 Bootstrapping
+                            if (nd.triggerBoot && nd.mode == Mode::SIMD && isa<simd::SIMDCipherType>(nv.getType())) {
+                                auto oldTy = cast<simd::SIMDCipherType>(nv.getType());
+                                auto bootedTy = simd::SIMDCipherType::get(op->getContext(), BOOT_LEVEL, oldTy.getPlaintextCount(), oldTy.getElementType());
+                                nv = rewriter.create<simd::SIMDBootOp>(op->getLoc(), bootedTy, nv).getResult();
                             }
 
                             newOps.push_back(nv);
                         }
 
                         // === Step A.5: Level Alignment (关键修复) ===
+                        // 如果是 Add/Sub/Min/Select/Cmp/Div，必须保证所有 SIMD 操作数 Level 一致
+                        // 我们找到最小的 Level，将其他操作数 ModSwitch 到该 Level
                         if (nd.mode == Mode::SIMD && !newOps.empty()) {
                             bool needsAlign = isa<simd::SIMDAddOp, simd::SIMDSubOp, simd::SIMDMinOp,
                                                   simd::SIMDSelectOp, simd::SIMDCmpOp, simd::SIMDDivOp>(op);
@@ -554,9 +538,12 @@ namespace mlir::libra::mdsel {
                                     for (Value& v : newOps) {
                                         if (auto st = dyn_cast<simd::SIMDCipherType>(v.getType())) {
                                             if (st.getLevel() > minLevel) {
-                                                LLVM_DEBUG(llvm::dbgs() << "    - Inserting ModSwitch (Aligning L" << st.getLevel() << " -> L" << minLevel << ")\n");
+                                                // 创建 ModSwitchOp 进行降级
                                                 auto targetTy = simd::SIMDCipherType::get(
                                                     op->getContext(), minLevel, st.getPlaintextCount(), st.getElementType());
+
+                                                // 注意：如果没有定义 SIMDModSwitchOp，你可以暂时用 SIMDRescaleOp 替代，
+                                                // 但语义上 ModSwitch 更准确 (不除以缩放因子)
                                                 v = rewriter.create<simd::SIMDModSwitchOp>(op->getLoc(), targetTy, v).getResult();
                                             }
                                         }
@@ -585,6 +572,7 @@ namespace mlir::libra::mdsel {
 
                                 // [修复] 再次校准结果 Level，确保它等于对齐后的输入 Level
                                 if (isa<simd::SIMDAddOp, simd::SIMDSubOp, simd::SIMDMinOp, simd::SIMDSelectOp>(op)) {
+                                    // 此时 newOps 已经对齐，取第一个 SIMD 操作数的 Level 即可
                                     for (Value v : newOps) {
                                         if (auto st = dyn_cast<simd::SIMDCipherType>(v.getType())) {
                                             resultLevel = st.getLevel();
@@ -621,6 +609,7 @@ namespace mlir::libra::mdsel {
                                 else
                                     newOp = rewriter.create<simd::SIMDEncryptOp>(op->getLoc(), resTy, newOps);
                             } else if (isa<simd::SIMDSelectOp>(op)) {
+                                // Select 通常三个操作数都需要对齐 (Condition, True, False)
                                 newOp = rewriter.create<simd::SIMDSelectOp>(op->getLoc(), resTy, newOps[0], newOps[1], newOps[2]);
                             } else if (isa<simd::SIMDCmpOp>(op)) {
                                 auto pred = cast<simd::SIMDCmpOp>(op).getPredicate();
@@ -631,24 +620,40 @@ namespace mlir::libra::mdsel {
                                 newOp = rewriter.create<simd::SIMDReduceAddOp>(op->getLoc(), resTy, newOps[0]);
                             } else if (isa<simd::SIMDStoreOp>(op)) {
                                 rewriter.create<simd::SIMDStoreOp>(op->getLoc(), newOps[0], newOps[1]);
-                                LLVM_DEBUG(llvm::dbgs() << "    - Created StoreOp (No Result)\n");
+                                // [重要] 不要在这里 eraseOp，留给最后一步
                                 continue;
                             } else if (isa<simd::SIMDRescaleOp>(op)) {
+                                // Rescale 的逻辑：输入 Level -> 输出 Level
+                                // 如果 nd.mode 是 SISD，这可能不合法（除非有 SISDRescale）
+                                // 这里假设保持 SIMD
+
+                                // 重新计算 Rescale 的输出 Level
+                                // 通常 Rescale 降低一层。
+                                // 但 ModeSelect 可能改变了决策。
+                                // 简单起见，我们根据 nd.finalLevel 创建一个新的 Rescale
+
                                 auto inputCipher = newOps[0];
                                 int inputLevel = 0;
                                 if (auto st = dyn_cast<simd::SIMDCipherType>(inputCipher.getType())) {
                                     inputLevel = st.getLevel();
                                 }
+
+                                // 目标 Level
                                 int targetLevel = nd.finalLevel;
 
+                                // 如果目标 Level >= 输入 Level，说明不需要 Rescale (或者该 Rescale 是多余的)
                                 if (targetLevel >= inputLevel) {
-                                    LLVM_DEBUG(llvm::dbgs() << "    - Eliminated Redundant Rescale\n");
+                                    // 消除 Rescale：直接将结果映射为输入
+                                    // 注意：这里没有创建 newOp，我们需要特殊处理 rewriteMap
                                     rewriteMap[op->getResult(0)] = inputCipher;
                                     continue;
                                 }
+
+                                // 否则，创建新的 Rescale
                                 auto resTy = simd::SIMDCipherType::get(op->getContext(), targetLevel, vecCnt, rewriter.getI64Type());
                                 newOp = rewriter.create<simd::SIMDRescaleOp>(op->getLoc(), resTy, inputCipher);
                             } else if (isa<simd::SIMDModSwitchOp>(op)) {
+                                // 同 Rescale 逻辑
                                 auto inputCipher = newOps[0];
                                 int inputLevel = 0;
                                 if (auto st = dyn_cast<simd::SIMDCipherType>(inputCipher.getType())) {
@@ -657,7 +662,6 @@ namespace mlir::libra::mdsel {
                                 int targetLevel = nd.finalLevel;
 
                                 if (targetLevel >= inputLevel) {
-                                    LLVM_DEBUG(llvm::dbgs() << "    - Eliminated Redundant ModSwitch\n");
                                     rewriteMap[op->getResult(0)] = inputCipher;
                                     continue;
                                 }
@@ -668,7 +672,6 @@ namespace mlir::libra::mdsel {
                         }
 
                         if (newOp) {
-                            LLVM_DEBUG(llvm::dbgs() << "    - Successfully created replacement Op.\n");
                             rewriteMap[op->getResult(0)] = newOp->getResult(0);
                         }
                     }
@@ -676,27 +679,40 @@ namespace mlir::libra::mdsel {
                     // ------------------------------------------------------------
                     // 5. Final Replacement (Safe Deletion)
                     // ------------------------------------------------------------
-                    LLVM_DEBUG(llvm::dbgs() << "\n[Cleanup] Performing Safe Deletions...\n");
                     for (Operation* op : topo) {
+                        // A. 替换结果引用
+                        // 遍历该 Op 的所有结果 (Result)
                         for (int i = 0; i < op->getNumResults(); ++i) {
                             Value oldVal = op->getResult(i);
+
+                            // 检查是否有对应的重写映射
                             if (rewriteMap.count(oldVal)) {
                                 Value newVal = rewriteMap[oldVal];
+                                // 核心操作：将所有使用 oldVal 的地方替换为 newVal
                                 oldVal.replaceAllUsesWith(newVal);
                             }
                         }
 
+                        // B. 安全删除
+                        // 只有当 Op 没有任何 User 时才删除。
+                        // 如果 rewriteMap 漏掉了某种情况，use_empty() 会返回 false。
+                        // 此时我们跳过删除，虽然会留下死代码，但能防止编译器 Crash (Assertion failed)。
                         if (op->use_empty()) {
+                            // 使用 rewriter 删除可以通知监听器（如果有）
                             rewriter.eraseOp(op);
                         } else {
-                            LLVM_DEBUG(llvm::dbgs() << "  [Warning] Op not erased due to remaining uses: " << getOpName(op) << "\n");
+                            // [可选] 调试信息：打印出哪些 Op 没被清理干净
+                            // llvm::errs() << "[Warning] Op not erased due to remaining uses: " << getOpName(op) << "\n";
                         }
                     }
 
                     // ------------------------------------------------------------
-                    // 6. Fix Loop Signatures (Post-Processing)
+                    // 6. Fix Loop Signatures (Post-Processing) [关键修复]
                     // ------------------------------------------------------------
-                    LLVM_DEBUG(llvm::dbgs() << "\n[Post-Processing] Fixing Affine For Loops Signatures...\n");
+                    // ModeSelect 可能降低了循环内部的 Level (例如 Yield L30)，
+                    // 但 Loop Op 本身还保留着旧的签名 (L31)。我们需要更新 Loop。
+
+                    // 我们收集需要更新的 Loop，避免在遍历时修改
                     SmallVector<affine::AffineForOp> loopsToFix;
                     func.walk([&](affine::AffineForOp forOp) {
                         if (forOp.getNumResults() == 0)
@@ -712,8 +728,9 @@ namespace mlir::libra::mdsel {
                         SmallVector<Type> newTypes;
                         SmallVector<Value> newInits;
 
-                        rewriter.setInsertionPoint(forOp);
+                        rewriter.setInsertionPoint(forOp); // 确保在 Loop 之前插入 Cast/ModSwitch
 
+                        // 检查 Yield vs Init/Arg 的类型一致性
                         for (auto it : llvm::zip(forOp.getInits(), forOp.getRegionIterArgs(), yieldOp.getOperands())) {
                             Value init = std::get<0>(it);
                             Value yielded = std::get<2>(it);
@@ -723,19 +740,22 @@ namespace mlir::libra::mdsel {
 
                             if (yieldTy != initTy) {
                                 needsUpdate = true;
+
+                                // 我们需要将 'init' (可能是 L31) 降级为 'yieldTy' (L30)
                                 Value newInit = init;
 
+                                // 尝试使用 SIMD ModSwitch 进行降级
                                 if (auto simdDst = dyn_cast<simd::SIMDCipherType>(yieldTy)) {
                                     if (auto simdSrc = dyn_cast<simd::SIMDCipherType>(initTy)) {
                                         if (simdSrc.getLevel() > simdDst.getLevel()) {
-                                            LLVM_DEBUG(llvm::dbgs() << "  - Inserting ModSwitch for Loop Init\n");
+                                            //
                                             newInit = rewriter.create<simd::SIMDModSwitchOp>(forOp.getLoc(), yieldTy, init).getResult();
                                         }
                                     }
                                 }
 
+                                // 如果 ModSwitch 不适用（类型完全不同），使用通用 Cast 兜底
                                 if (newInit.getType() != yieldTy) {
-                                    LLVM_DEBUG(llvm::dbgs() << "  - Inserting UnrealizedCast for Loop Init\n");
                                     newInit = rewriter.create<UnrealizedConversionCastOp>(forOp.getLoc(), yieldTy, newInit).getResult(0);
                                 }
 
@@ -750,19 +770,21 @@ namespace mlir::libra::mdsel {
                         if (!needsUpdate)
                             continue;
 
-                        LLVM_DEBUG(llvm::dbgs() << "  - Rewriting Loop due to signature change.\n");
-
+                        // === 创建新的 Loop ===
                         auto newLoop = rewriter.create<affine::AffineForOp>(
                             forOp.getLoc(),
                             forOp.getLowerBoundOperands(), forOp.getLowerBoundMap(),
                             forOp.getUpperBoundOperands(), forOp.getUpperBoundMap(),
                             forOp.getStep().getSExtValue(),
                             newInits,
-                            [&](OpBuilder&, Location, Value, ValueRange) {});
+                            [&](OpBuilder&, Location, Value, ValueRange) {} // 空 Body
+                        );
 
+                        // === 迁移 Body ===
                         Block* newBody = newLoop.getBody();
-                        newBody->clear();
+                        newBody->clear(); // 清除默认 terminator
 
+                        // 建立参数映射: Old IV/Args -> New IV/Args
                         SmallVector<Value> mapArgs;
                         mapArgs.push_back(newLoop.getInductionVar());
                         for (auto arg : newLoop.getRegionIterArgs())
@@ -770,6 +792,7 @@ namespace mlir::libra::mdsel {
 
                         rewriter.mergeBlocks(body, newBody, mapArgs);
 
+                        // 强制更新 Block Argument 类型 (mergeBlocks 可能保留了旧类型引用)
                         for (size_t i = 0; i < newLoop.getRegionIterArgs().size(); ++i) {
                             newLoop.getRegionIterArgs()[i].setType(newTypes[i]);
                         }
@@ -788,140 +811,50 @@ namespace mlir::libra::mdsel {
                             }
                         }
 
+                        // 安全删除旧 Loop
                         forOp.erase();
                     }
 
                     // ------------------------------------------------------------
-                    // 7. Fix Function Returns (Post-Processing)
+                    // 7. Fix Function Returns (Post-Processing) [新增修复]
                     // ------------------------------------------------------------
-                    LLVM_DEBUG(llvm::dbgs() << "\n[Post-Processing] Fixing Function Returns...\n");
+                    // ModeSelect 可能把原本要返回的 SIMD 算子变成了 SISD 算子，
+                    // 为了不破坏函数签名（以及外部的调用者），我们在 return 前把它 Cast 回去。
                     func.walk([&](func::ReturnOp retOp) {
                         rewriter.setInsertionPoint(retOp);
 
                         for (unsigned i = 0; i < retOp.getNumOperands(); ++i) {
                             Value val = retOp.getOperand(i);
+                            // 获取函数签名中声明的对应返回类型
                             Type expectedTy = func.getFunctionType().getResult(i);
 
                             if (val.getType() != expectedTy) {
                                 Value castedVal = val;
-                                LLVM_DEBUG(llvm::dbgs() << "  - Type mismatch at Return. Expected: " << expectedTy
-                                                        << ", Got: " << val.getType() << ". Inserting Cast.\n");
 
+                                // 如果函数要求返回 SIMD，但现在我们手里是 SISD
                                 if (isa<simd::SIMDCipherType>(expectedTy) && isa<sisd::SISDCipherType>(val.getType())) {
                                     castedVal = rewriter.create<sisd::SISDCastSISDCipherToSIMDCipherOp>(
                                                             retOp.getLoc(), expectedTy, val)
                                                     .getResult();
-                                } else if (isa<sisd::SISDCipherType>(expectedTy) && isa<simd::SIMDCipherType>(val.getType())) {
+                                }
+                                // 如果函数要求返回 SISD，但现在我们手里是 SIMD
+                                else if (isa<sisd::SISDCipherType>(expectedTy) && isa<simd::SIMDCipherType>(val.getType())) {
                                     castedVal = rewriter.create<simd::SIMDCastSIMDCipherToSISDCipherOp>(
                                                             retOp.getLoc(), expectedTy, val)
                                                     .getResult();
-                                } else {
+                                }
+                                // 如果是其他类型不匹配（比如 Level 不匹配），用通用 Cast 兜底
+                                else {
                                     castedVal = rewriter.create<UnrealizedConversionCastOp>(
                                                             retOp.getLoc(), expectedTy, val)
                                                     .getResult(0);
                                 }
 
+                                // 将 return 的操作数替换为 Cast 之后的值
                                 retOp.setOperand(i, castedVal);
                             }
                         }
                     });
-                    // LLVM_DEBUG(llvm::dbgs() << "\n[ModeSel] Completed Function: @" << func.getName() << "\n");
-
-                    // ====================================================================
-                    // 8. 自动推断并生成全局配置属性，按需挂载到 Module 上
-                    // ====================================================================
-                    LLVM_DEBUG(llvm::dbgs() << "\n[Post-Processing] Attaching Global FlyHE Config to Module...\n");
-
-                    bool hasSIMD = false;
-                    bool hasSISD = false;
-                    bool hasBoot = false;
-
-                    int64_t maxCount = 1;
-                    int32_t initial_level = 1; // 专门记录最初始的 Level
-
-                    // 1. 遍历整个 Module 扫描内部算子
-                    module.walk([&](Operation* op) {
-                        if (!op || !op->getDialect())
-                            return;
-                        StringRef ns = op->getDialect()->getNamespace();
-
-                        if (ns == "simd")
-                            hasSIMD = true;
-                        if (ns == "sisd")
-                            hasSISD = true;
-                        if (isa<simd::SIMDBootOp>(op))
-                            hasBoot = true;
-
-                        // 提取密文类型中的 Count (全局扫描以寻找最大的 batch size)
-                        auto checkCipherCount = [&](Type ty) {
-                            if (auto simdTy = dyn_cast<simd::SIMDCipherType>(ty)) {
-                                maxCount = std::max(maxCount, simdTy.getPlaintextCount());
-                            } else if (auto sisdTy = dyn_cast<sisd::SISDCipherType>(ty)) {
-                                maxCount = std::max(maxCount, sisdTy.getPlaintextCount());
-                            }
-                        };
-
-                        for (Type ty : op->getOperandTypes())
-                            checkCipherCount(ty);
-                        for (Type ty : op->getResultTypes())
-                            checkCipherCount(ty);
-
-                        // 【关键修复】：只从计算的“源头”提取初始 Level
-                        // 源头包括：加密算子、以及从 SISD 转换到 SIMD 的入口算子
-                        if (isa<simd::SIMDEncryptOp, sisd::SISDCastSISDCipherToSIMDCipherOp>(op)) {
-                            if (auto simdTy = dyn_cast<simd::SIMDCipherType>(op->getResult(0).getType())) {
-                                initial_level = std::max<int32_t>(initial_level, simdTy.getLevel());
-                            }
-                        }
-                    });
-
-                    // 2. 检查函数的输入参数（它们也是计算源头）
-                    module.walk([&](func::FuncOp func) {
-                        for (Type ty : func.getArgumentTypes()) {
-                            if (auto simdTy = dyn_cast<simd::SIMDCipherType>(ty)) {
-                                initial_level = std::max<int32_t>(initial_level, simdTy.getLevel());
-                            }
-                        }
-                    });
-
-                    // 3. 推断运行模式
-                    std::string modeStr = "SIMD";
-                    if (hasSIMD && hasSISD) {
-                        modeStr = "CROSS";
-                    } else if (hasSISD) {
-                        modeStr = "SISD";
-                    }
-
-                    // 4. 计算 logn (满足 maxCount 的最小 2 次幂指数)
-                    int64_t logn = std::max<int64_t>(1, std::ceil(std::log2(maxCount)));
-
-                    // 5. 确定 remaining_levels (最小初始 Level)
-                    int32_t remaining_levels = initial_level;
-
-                    // 使用 OpBuilder 构造 Attributes
-                    OpBuilder builder(module.getContext());
-                    SmallVector<NamedAttribute, 5> configAttrs;
-
-                    // 无论什么模式，mode 参数是必须的
-                    configAttrs.push_back(builder.getNamedAttr("mode", builder.getStringAttr(modeStr)));
-
-                    // 只有 SIMD 和 CROSS 模式才需要挂载 CKKS 相关的参数
-                    if (modeStr == "SIMD" || modeStr == "CROSS") {
-                        configAttrs.push_back(builder.getNamedAttr("logN", builder.getI64IntegerAttr(16))); // 强制固定为 16
-                        configAttrs.push_back(builder.getNamedAttr("logn", builder.getI64IntegerAttr(logn)));
-                        configAttrs.push_back(builder.getNamedAttr("remaining_levels", builder.getI32IntegerAttr(remaining_levels)));
-                        configAttrs.push_back(builder.getNamedAttr("bootstrapping_enabled", builder.getBoolAttr(hasBoot)));
-                    }
-
-                    // 构造 DictionaryAttr 并挂载到 Module
-                    DictionaryAttr dictAttr = builder.getDictionaryAttr(configAttrs);
-                    module->setAttr("he.config", dictAttr);
-
-                    LLVM_DEBUG(llvm::dbgs() << "  -> Mode: " << modeStr << "\n");
-                    LLVM_DEBUG(llvm::dbgs() << "  -> Computed logn: " << logn << " (from max plaintext count: " << maxCount << ")\n");
-                    LLVM_DEBUG(llvm::dbgs() << "  -> Initial remaining_levels: " << remaining_levels << "\n");
-                    LLVM_DEBUG(llvm::dbgs() << "  -> Bootstrapping Enabled: " << (hasBoot ? "True" : "False") << "\n");
-                    LLVM_DEBUG(llvm::dbgs() << "[ModeSel] Pass Finished Successfully.\n");
                 }
             }
         };

@@ -4,6 +4,7 @@ add_public_tablegen_target(MLIRSCFHEPassesIncGen)
 # add_dependencies(mlir-headers MLIRSCFHEPassesIncGen)
 
 add_mlir_dialect_library(SCFHEPasses
+  AutoAnnotatePass.cpp
   SCFHEPass.cpp
 
   DEPENDS

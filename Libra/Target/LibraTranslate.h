@@ -60,6 +60,8 @@ namespace mlir {
                 // 核心后端调用函数 [必须匹配 .cpp]
                 LogicalResult emitBackendCall(Operation* op, StringRef funcName);
 
+                LogicalResult emitContextAwareCall(Operation* op, llvm::StringRef funcName);
+
                 LogicalResult printOperation(Operation* op);
             };
 

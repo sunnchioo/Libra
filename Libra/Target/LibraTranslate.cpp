@@ -17,9 +17,13 @@
 #include "mlir/Dialect/Vector/IR/VectorOps.h"
 
 #include "mlir/IR/BuiltinOps.h"
+#include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/Tools/mlir-translate/Translation.h"
+
 #include "llvm/ADT/TypeSwitch.h"
 #include "llvm/Support/raw_ostream.h"
+
+#include <string>
 
 using namespace mlir;
 using namespace mlir::libra::backend;
@@ -36,12 +40,38 @@ std::string LibraBackendEmitter::nameFor(Value v) {
     return generated;
 }
 
+// 辅助函数：从类型（比如 memref<10xf64> 或 !sisd.sisdcipher<10xi64>）中提取 batch size
+static int64_t extractSize(Type t) {
+    if (auto memTy = dyn_cast<MemRefType>(t)) {
+        return memTy.getShape()[0];
+    }
+    // 对于 Opaque / 自定义 Cipher Type，采用字符串快提
+    std::string typeStr;
+    llvm::raw_string_ostream rso(typeStr);
+    t.print(rso);
+    size_t start = typeStr.find('<');
+    size_t end = typeStr.find('x');
+    if (start != std::string::npos && end != std::string::npos) {
+        return std::stoi(typeStr.substr(start + 1, end - start - 1));
+    }
+
+    int maxSlots = 32768;
+    return maxSlots; // 兜底返回最大的slot
+}
+
 // ============================================================================
 // 2. Dispatcher
 // ============================================================================
 
 LogicalResult LibraBackendEmitter::emitModule(ModuleOp module) {
-    os << "// === Libra FlyHE Backend Interface Output ===\n\n";
+    os << "// === Auto-Generated FlyHE CUDA C++ Program ===\n";
+    os << "#include <iostream>\n";
+    os << "#include <vector>\n";
+    os << "#include <cstdlib>\n";
+    os << "#include <cstdio>\n";
+    os << "#include <algorithm>\n\n";
+    os << "#include \"FlyHEContext.h\"\n\n";
+
     for (Operation& op : module.getOps()) {
         if (failed(translate(op)))
             return failure();
@@ -63,58 +93,59 @@ LogicalResult LibraBackendEmitter::translate(Operation& op) {
         return success();
     };
 
+    // --- LLVM & 特殊底层调用拦截 ---
+    StringRef opName = op.getName().getStringRef();
+    if (opName == "memref.copy") {
+        os << "  std::copy(" << nameFor(op.getOperand(0)) << ".begin(), " << nameFor(op.getOperand(0)) << ".end(), " << nameFor(op.getOperand(1)) << ".begin());\n";
+        return success();
+    }
+    if (opName == "llvm.mlir.addressof") {
+        os << "  const char* " << nameFor(op.getResult(0)) << " = \"%f + %f = %f\\n\";\n";
+        return success();
+    }
+    if (opName == "llvm.getelementptr") {
+        nameTable[op.getResult(0)] = nameFor(op.getOperand(0)); // 透传指针
+        return success();
+    }
+    if (opName == "llvm.call") {
+        auto calleeAttr = op.getAttrOfType<FlatSymbolRefAttr>("callee");
+        if (calleeAttr && calleeAttr.getValue() == "printf") {
+            os << "  std::printf(" << nameFor(op.getOperand(0));
+            for (unsigned i = 1; i < op.getNumOperands(); ++i) {
+                os << ", " << nameFor(op.getOperand(i));
+            }
+            os << ");\n";
+            return success();
+        }
+    }
+
     return llvm::TypeSwitch<Operation*, LogicalResult>(&op)
         // --- Functions ---
         .Case<func::FuncOp>([&](auto op) { return this->emitFunc(op); })
         .Case<func::ReturnOp>([&](auto op) { return this->emitReturn(op); })
         .Case<func::CallOp>([&](auto op) { return this->emitFuncCall(op); })
 
-        // --- SIMD Ops ---
-        .Case<mlir::libra::simd::SIMDAddOp>([&](auto op) {
-            return this->emitBackendCall(op, backend->getSIMDAddFunc());
+        // --- SISD Ops 核心翻译 (映射到 cuTLWE 和 evaluator) ---
+        .Case<mlir::libra::sisd::SISDEncryptOp>([&](auto op) {
+            return this->emitContextAwareCall(op, backend->getSISDEncrypt());
         })
-        .Case<mlir::libra::simd::SIMDSubOp>([&](auto op) {
-            return this->emitBackendCall(op, backend->getSIMDSubFunc());
-        })
-        .Case<mlir::libra::simd::SIMDMultOp>([&](auto op) {
-            return this->emitBackendCall(op, backend->getSIMDMultFunc());
-        })
-        .Case<mlir::libra::simd::SIMDEncryptOp>([&](auto op) {
-            return this->emitBackendCall(op, backend->getSIMDEncrypt());
-        })
-        .Case<mlir::libra::simd::SIMDDecryptOp>([&](auto op) {
-            return this->emitBackendCall(op, backend->getSIMDDecrypt());
-        })
-        .Case<mlir::libra::simd::SIMDDivOp>([&](auto op) {
-            return this->emitBackendCall(op, "FlyHE.SIMDDiv");
-        })
-        .Case<mlir::libra::simd::SIMDExpOp>([&](auto op) {
-            return this->emitBackendCall(op, "FlyHE.SIMDExp");
-        })
-        .Case<mlir::libra::simd::SIMDStoreOp>([&](auto op) {
-            // 修复: 使用通用接口获取操作数 (0: value, 1: memref)
-            os << "  FlyHE.Store(" << nameFor(op->getOperand(0)) << ", " << nameFor(op->getOperand(1)) << ");\n";
-            return success();
-        })
-        .Case<mlir::libra::simd::SIMDReduceAddOp>([&](auto op) {
-            return this->emitBackendCall(op, "FlyHE.ReduceAdd");
-        })
-
-        // --- SISD Ops ---
         .Case<mlir::libra::sisd::SISDAddOp>([&](auto op) {
-            return this->emitBackendCall(op, backend->getSISDAddFunc());
+            return this->emitContextAwareCall(op, backend->getSISDAddFunc());
         })
         .Case<mlir::libra::sisd::SISDSubOp>([&](auto op) {
-            return this->emitBackendCall(op, backend->getSISDSubFunc());
+            return this->emitContextAwareCall(op, backend->getSISDSubFunc());
+        })
+        .Case<mlir::libra::sisd::SISDDecryptOp>([&](auto op) {
+            return this->emitContextAwareCall(op, backend->getSISDDecrypt());
         })
         .Case<mlir::libra::sisd::SISDMinOp>([&](auto op) {
-            return this->emitBackendCall(op, backend->getSISDMinFunc());
+            return this->emitContextAwareCall(op, backend->getSISDMinFunc());
         })
 
-        // --- SCFHE Ops ---
-        .Case<mlir::libra::scfhe::SCFHEThresholdCountOp>([&](auto op) {
-            return this->emitBackendCall(op, "FlyHE.ThresholdCount");
-        })
+        // --- SIMD Ops (保留) ---
+        .Case<mlir::libra::simd::SIMDAddOp>([&](auto op) { return this->emitBackendCall(op, backend->getSIMDAddFunc()); })
+        .Case<mlir::libra::simd::SIMDSubOp>([&](auto op) { return this->emitBackendCall(op, backend->getSIMDSubFunc()); })
+        .Case<mlir::libra::simd::SIMDMultOp>([&](auto op) { return this->emitBackendCall(op, backend->getSIMDMultFunc()); })
 
         // --- Control Flow ---
         .Case<affine::AffineForOp>([&](auto op) { return this->emitAffineFor(op); })
@@ -128,22 +159,12 @@ LogicalResult LibraBackendEmitter::translate(Operation& op) {
         .Case<arith::SubFOp>([&](auto op) { return emitBinary(op, "-"); })
         .Case<arith::MulFOp>([&](auto op) { return emitBinary(op, "*"); })
         .Case<arith::DivFOp>([&](auto op) { return emitBinary(op, "/"); })
-        .Case<arith::AddIOp>([&](auto op) { return emitBinary(op, "+"); })
-        .Case<arith::MulIOp>([&](auto op) { return emitBinary(op, "*"); })
-        .Case<arith::CmpFOp>([&](auto op) { return emitBinary(op, "cmp"); })
-        .Case<arith::XOrIOp>([&](auto op) { return emitBinary(op, "^"); })
-        .Case<arith::SelectOp>([&](auto op) {
-            os << "  auto " << nameFor(op.getResult()) << " = " << nameFor(op.getCondition())
-               << " ? " << nameFor(op.getTrueValue()) << " : " << nameFor(op.getFalseValue()) << ";\n";
-            return success();
-        })
-        // 修复: 使用 op->getResult(0) 和 op->getOperand(0)
         .Case<arith::IndexCastOp>([&](auto op) {
-            os << "  auto " << nameFor(op->getResult(0)) << " = (size_t)" << nameFor(op->getOperand(0)) << ";\n";
+            os << "  int " << nameFor(op->getResult(0)) << " = (int)" << nameFor(op->getOperand(0)) << ";\n";
             return success();
         })
         .Case<arith::SIToFPOp>([&](auto op) {
-            os << "  auto " << nameFor(op->getResult(0)) << " = (double)" << nameFor(op->getOperand(0)) << ";\n";
+            os << "  double " << nameFor(op->getResult(0)) << " = (double)" << nameFor(op->getOperand(0)) << ";\n";
             return success();
         })
 
@@ -151,29 +172,6 @@ LogicalResult LibraBackendEmitter::translate(Operation& op) {
         .Case<memref::AllocOp>([&](auto op) { return this->emitMemRefAlloc(op); })
         .Case<affine::AffineLoadOp>([&](auto op) { return this->emitAffineLoad(op); })
         .Case<affine::AffineStoreOp>([&](auto op) { return this->emitAffineStore(op); })
-        .Case<vector::TransferReadOp>([&](auto op) {
-            // 修复: 使用通用接口 op->getOperand(0) 获取 source
-            os << "  auto " << nameFor(op->getResult(0)) << " = vec_load("
-               << nameFor(op->getOperand(0)) << ");\n";
-            return success();
-        })
-        .Case<vector::TransferWriteOp>([&](auto op) {
-            // 修复: 0 is vector, 1 is source
-            os << "  vec_store(" << nameFor(op->getOperand(0)) << ", " << nameFor(op->getOperand(1)) << ");\n";
-            return success();
-        })
-        .Case<vector::BroadcastOp>([&](auto op) {
-            return this->emitBackendCall(op, "vec_broadcast");
-        })
-        .Case<vector::CreateMaskOp>([&](auto op) {
-            return this->emitBackendCall(op, "vec_mask");
-        })
-
-        // --- Casts ---
-        .Case<mlir::UnrealizedConversionCastOp>([&](auto op) {
-            nameTable[op->getResult(0)] = nameFor(op->getOperand(0));
-            return success();
-        })
 
         // --- Fallback ---
         .Default([&](Operation* op) {
@@ -186,7 +184,6 @@ LogicalResult LibraBackendEmitter::translate(Operation& op) {
 // ============================================================================
 
 LogicalResult LibraBackendEmitter::emitBackendCall(Operation* op, StringRef funcName) {
-    // 修复: 使用 op->getResult(0)
     os << "  auto " << nameFor(op->getResult(0)) << " = " << funcName << "(";
     bool first = true;
     for (Value arg : op->getOperands()) {
@@ -199,25 +196,100 @@ LogicalResult LibraBackendEmitter::emitBackendCall(Operation* op, StringRef func
     return success();
 }
 
+LogicalResult LibraBackendEmitter::emitContextAwareCall(Operation* op, StringRef funcName) {
+    int64_t size = 10; // 默认 fallback
+    if (op->getNumResults() > 0) {
+        size = extractSize(op->getResult(0).getType());
+    } else if (op->getNumOperands() > 0) {
+        size = extractSize(op->getOperand(0).getType());
+    }
+
+    // 拿到结果变量的名称
+    std::string resName = nameFor(op->getResult(0));
+    Type resType = op->getResult(0).getType();
+
+    // 1. 根据 MLIR 的类型系统，自动在 C++ 中生成预分配语句
+    if (isa<mlir::libra::sisd::SISDCipherType>(resType)) {
+        os << "  Pointer<cuTLWE<lwe_enc_lvl>> " << resName << "(" << size << ");\n";
+    } else if (isa<mlir::libra::simd::SIMDCipherType>(resType)) {
+        os << "  PhantomCiphertext " << resName << ";\n";
+    } else if (isa<MemRefType>(resType)) {
+        os << "  std::vector<double> " << resName << "(" << size << ");\n";
+    } else {
+        // Fallback，如果是标量或其他未知类型
+        os << "  auto " << resName << ";\n";
+    }
+
+    // 2. 调用修改后的 void 返回值的 Wrapper 函数
+    // 格式：FlyHE_SISDAdd(hectx, v3, v1, v2, 10);
+    os << "  " << funcName << "(hectx, " << resName;
+    for (Value arg : op->getOperands()) {
+        os << ", " << nameFor(arg);
+    }
+    os << ", " << size << ");\n";
+
+    return success();
+}
+
 LogicalResult LibraBackendEmitter::emitFunc(func::FuncOp funcOp) {
-    if (funcOp.isPrivate())
+    // 忽略辅助测试函数
+    if (funcOp.isPrivate() || funcOp.getName() == "random_real" || funcOp.getName() == "rand")
         return success();
-    os << "\nfunc " << funcOp.getName() << "(";
-    auto args = funcOp.getArguments();
-    for (unsigned i = 0; i < args.size(); ++i) {
-        if (i > 0)
-            os << ", ";
-        os << "arg" << i;
-        nameTable[args[i]] = "arg" + std::to_string(i);
-    }
-    os << ") {\n";
-    for (Block& block : funcOp.getBlocks()) {
-        for (Operation& op : block) {
-            if (failed(translate(op)))
-                return failure();
+
+    if (funcOp.getName() == "main") {
+        os << "int main() {\n";
+
+        // --- 从 Module 中提取并生成 FlyHEConfig 初始化代码 ---
+        std::string configStr = "FlyHEConfig::CreateSISD()";
+        auto module = funcOp->getParentOfType<ModuleOp>();
+
+        if (auto dictAttr = module->getAttrOfType<DictionaryAttr>("flyhe.config")) {
+            // 注意这里：改成了全局的 dyn_cast_or_null<T>(...)
+            if (auto modeAttr = dyn_cast_or_null<StringAttr>(dictAttr.get("mode"))) {
+                std::string mode = modeAttr.getValue().str();
+                if (mode == "SISD") {
+                    configStr = "FlyHEConfig::CreateSISD()";
+                } else {
+                    int64_t logN = 16, logn = 7;
+                    int remaining = 21;
+                    bool boot = true;
+                    if (auto a = dyn_cast_or_null<IntegerAttr>(dictAttr.get("logN")))
+                        logN = a.getInt();
+                    if (auto a = dyn_cast_or_null<IntegerAttr>(dictAttr.get("logn")))
+                        logn = a.getInt();
+                    if (auto a = dyn_cast_or_null<IntegerAttr>(dictAttr.get("remaining_levels")))
+                        remaining = a.getInt();
+                    if (auto a = dyn_cast_or_null<BoolAttr>(dictAttr.get("bootstrapping_enabled")))
+                        boot = a.getValue();
+
+                    configStr = "FlyHEConfig::Create" + mode + "(" + std::to_string(logN) + ", " +
+                                std::to_string(logn) + ", " + std::to_string(remaining) + ", " +
+                                (boot ? "true" : "false") + ")";
+                }
+            }
         }
+
+        os << "  // --- 1. FHE Context Initialization ---\n";
+        os << "  auto config = " << configStr << ";\n";
+        os << "  FlyHEContext<> hectx(config);\n";
+        os << "  auto evaluator = hectx.tfhe_evaluator;\n\n";
+        os << "  // --- 2. Program Execution ---\n";
+
+        for (Block& block : funcOp.getBlocks()) {
+            for (Operation& op : block) {
+                // if (isa<func::ReturnOp>(op))
+                //     continue;
+                if (failed(translate(op)))
+                    return failure();
+            }
+        }
+
+        // os << "  return 0;\n";
+        os << "}\n";
+        return success();
     }
-    os << "}\n";
+
+    // 翻译其他函数...
     return success();
 }
 
@@ -230,28 +302,20 @@ LogicalResult LibraBackendEmitter::emitReturn(func::ReturnOp op) {
 }
 
 LogicalResult LibraBackendEmitter::emitFuncCall(func::CallOp op) {
-    os << "  ";
-    if (op.getNumResults() > 0)
-        os << "auto " << nameFor(op.getResult(0)) << " = ";
-    os << op.getCallee() << "(";
-    bool first = true;
-    for (Value arg : op.getOperands()) {
-        if (!first)
-            os << ", ";
-        first = false;
-        os << nameFor(arg);
+    if (op.getCallee() == "rand") {
+        os << "  int " << nameFor(op.getResult(0)) << " = std::rand();\n";
+        return success();
     }
-    os << ");\n";
+    // 处理其他调用...
     return success();
 }
 
 LogicalResult LibraBackendEmitter::emitAffineFor(affine::AffineForOp op) {
     std::string iv = nameFor(op.getInductionVar());
-    // 支持动态边界
     std::string lb = op.hasConstantLowerBound() ? std::to_string(op.getConstantLowerBound()) : nameFor(op.getLowerBoundOperands()[0]);
     std::string ub = op.hasConstantUpperBound() ? std::to_string(op.getConstantUpperBound()) : nameFor(op.getUpperBoundOperands()[0]);
 
-    os << "  for (" << iv << " in range(" << lb << ", " << ub << ")) {\n";
+    os << "  for (int " << iv << " = " << lb << "; " << iv << " < " << ub << "; ++" << iv << ") {\n";
     for (Operation& bodyOp : *op.getBody()) {
         if (isa<affine::AffineYieldOp>(bodyOp))
             continue;
@@ -276,42 +340,38 @@ LogicalResult LibraBackendEmitter::emitScfIf(scf::IfOp op) {
 
 LogicalResult LibraBackendEmitter::emitArithConstant(arith::ConstantOp op) {
     std::string resName = nameFor(op.getResult());
-    os << "  auto " << resName << " = ";
     if (auto floatAttr = dyn_cast<FloatAttr>(op.getValue())) {
-        os << floatAttr.getValueAsDouble();
+        os << "  double " << resName << " = " << floatAttr.getValueAsDouble() << ";\n";
     } else if (auto intAttr = dyn_cast<IntegerAttr>(op.getValue())) {
-        os << intAttr.getInt();
-    } else {
-        os << "const";
+        os << "  int " << resName << " = " << intAttr.getInt() << ";\n";
     }
-    os << ";\n";
     return success();
 }
 
 LogicalResult LibraBackendEmitter::emitMemRefAlloc(memref::AllocOp op) {
-    os << "  auto " << nameFor(op.getResult()) << " = alloc_mem();\n";
+    int64_t size = extractSize(op.getType());
+    os << "  std::vector<double> " << nameFor(op.getResult()) << "(" << size << ");\n";
     return success();
 }
 
 LogicalResult LibraBackendEmitter::emitAffineLoad(affine::AffineLoadOp op) {
-    os << "  auto " << nameFor(op.getResult()) << " = " << nameFor(op.getMemRef()) << "[...];\n";
+    os << "  auto " << nameFor(op.getResult()) << " = " << nameFor(op.getMemRef()) << "[" << nameFor(op.getIndices()[0]) << "];\n";
     return success();
 }
 
 LogicalResult LibraBackendEmitter::emitAffineStore(affine::AffineStoreOp op) {
-    os << "  " << nameFor(op.getMemRef()) << "[...] = " << nameFor(op.getValueToStore()) << ";\n";
+    os << "  " << nameFor(op.getMemRef()) << "[" << nameFor(op.getIndices()[0]) << "] = " << nameFor(op.getValueToStore()) << ";\n";
     return success();
 }
 
 LogicalResult LibraBackendEmitter::printOperation(Operation* op) {
     StringRef name = op->getName().getStringRef();
-    // 修复: 使用 starts_with
     if (name.starts_with("llvm.") || name.starts_with("memref.dealloc") || name.starts_with("polygeist")) {
         if (op->getNumResults() > 0)
             nameTable[op->getResult(0)] = "ignored";
         return success();
     }
-    os << "  // " << name << "\n";
+    os << "  // Unhandled MLIR op: " << name << "\n";
     return success();
 }
 

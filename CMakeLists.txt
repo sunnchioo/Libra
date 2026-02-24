@@ -1,7 +1,9 @@
 cmake_minimum_required(VERSION 3.20)
 
-set(CMAKE_C_COMPILER "${CMAKE_CURRENT_SOURCE_DIR}/Tool/llvm-project/build/bin/clang")
-set(CMAKE_CXX_COMPILER "${CMAKE_CURRENT_SOURCE_DIR}/Tool/llvm-project/build/bin/clang++")
+set(CMAKE_C_COMPILER "/mnt/data0/home/syt/Libra/Tool/llvm-project/build/bin/clang")
+set(CMAKE_CXX_COMPILER "/mnt/data0/home/syt/Libra/Tool/llvm-project/build/bin/clang++")
+# set(CMAKE_C_COMPILER "${CMAKE_CURRENT_SOURCE_DIR}/Tool/llvm-project/build/bin/clang")
+# set(CMAKE_CXX_COMPILER "${CMAKE_CURRENT_SOURCE_DIR}/Tool/llvm-project/build/bin/clang++")
 
 set(CMAKE_CUDA_COMPILER "/usr/local/cuda-12.4/bin/nvcc")
 # set(CMAKE_CUDA_COMPILER "/usr/local/cuda-12.6/bin/nvcc")
@@ -24,8 +26,10 @@ set(CMAKE_BUILD_TYPE "Debug" CACHE STRING " " FORCE)
 add_compile_options(-fPIC)
 # add_compile_options(-fno-rtti)
 
-list(APPEND LLVM_CMAKE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/Tool/llvm-project/build/lib/cmake/llvm")
-list(APPEND MLIR_CMAKE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/Tool/llvm-project/build/lib/cmake/mlir")
+list(APPEND LLVM_CMAKE_DIR "/mnt/data0/home/syt/Libra/Tool/llvm-project/build/lib/cmake/llvm")
+list(APPEND MLIR_CMAKE_DIR "/mnt/data0/home/syt/Libra/Tool/llvm-project/build/lib/cmake/mlir")
+# list(APPEND LLVM_CMAKE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/Tool/llvm-project/build/lib/cmake/llvm")
+# list(APPEND MLIR_CMAKE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/Tool/llvm-project/build/lib/cmake/mlir")
 
 list(APPEND CMAKE_MODULE_PATH ${MLIR_CMAKE_DIR})
 list(APPEND CMAKE_MODULE_PATH ${LLVM_CMAKE_DIR})

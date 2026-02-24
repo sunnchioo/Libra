@@ -12,38 +12,6 @@ class SIMD_Op<string mnemonic, list<Trait> traits = []> : Op<SIMD_Dialect, mnemo
     let summary = "SIMD dialect operations base class";
 }
 
-// def SIMDAddOp : SIMD_Op<"add", [Pure, SameOperandsAndResultType]> {
-//     let summary = "Define an add operation.";
-//     let description = [{
-//         Define an add operation.
-//     }];
-
-//     let arguments = (ins 
-//         AnyType:$input0,
-//         AnyType:$input1);
-//     let results = (outs AnyType:$res);
-
-//     let assemblyFormat = [{
-//         $input0 `+` $input1 attr-dict `:` type($input0)
-//     }];
-// }
-
-// def SIMDSubOp : SIMD_Op<"sub", [Pure, SameOperandsAndResultType]> {
-//     let summary = "Define an sub operation.";
-//     let description = [{
-//         Define an sub operation.
-//     }];
-
-//     let arguments = (ins 
-//         AnyType:$input0,
-//         AnyType:$input1);
-//     let results = (outs AnyType:$res);
-
-//     let assemblyFormat = [{
-//         $input0 `_` $input1 attr-dict `:` type($input0)
-//     }];
-// }
-
 def SIMDAddOp : SIMD_Op<"add", [Pure]> {
     let summary = "Define an add operation.";
     let arguments = (ins AnyType:$input0, AnyType:$input1);

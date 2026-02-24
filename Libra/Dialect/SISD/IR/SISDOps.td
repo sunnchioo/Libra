@@ -118,7 +118,8 @@ def SISDEncryptOp : SISD_Op<"encrypt", [Pure]> {
         under homomorphic encryption context.
     }];
 
-    let arguments = (ins AnyTypeOf<[AnyFloat, VectorOfFloatTypeConstraint]>:$input);
+    let arguments = (ins AnyType:$input);
+    
     let results = (outs AnyType:$cipher);
 
     let assemblyFormat = [{
@@ -140,7 +141,7 @@ def SISDDecryptOp : SISD_Op<"decrypt", [Pure]> {
 
     let arguments = (ins AnyType:$cipher);
 
-    let results = (outs AnyTypeOf<[AnyFloat, VectorOfFloatTypeConstraint]>:$output);
+    let results = (outs AnyType:$output);
 
     let assemblyFormat = [{
         $cipher attr-dict `:` type($cipher) `->` type($output)

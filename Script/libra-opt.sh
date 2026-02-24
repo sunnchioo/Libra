@@ -51,16 +51,54 @@ echo "Log  :   $LOG_FILE"
 
 : > "$LOG_FILE"
 
+## opt for all
 "$LIBRA_OPT_BIN" \
   --verify-each \
+  --mlir-print-ir-after-all \
+  --debug-only=scfhe-pass \
+  --auto-annotate-scfhe \
   --convert-to-scfhe \
+  --canonicalize \
+  --inline \
+  --canonicalize \
   --convert-to-simd \
+  --debug-only=convert-to-simd \
   --mode-select \
   --mode-select-cost-table="$COST_TABLE_PATH" \
-  --add-bounded-stream-id \
-  --allow-unregistered-dialect \
-  --mlir-print-ir-after-all \
+  --debug-only=mode-select \
   "$INPUT_FILE" \
   -o "$OUTPUT_FILE" &> "$LOG_FILE"
+
+## opt for scfhe
+# "$LIBRA_OPT_BIN" \
+#   --verify-each \
+#   --mlir-print-ir-after-all \
+#   --debug-only=scfhe-pass \
+#   --auto-annotate-scfhe \
+#   --convert-to-scfhe \
+#   --canonicalize \
+#   --inline \
+#   --canonicalize \
+#   "$INPUT_FILE" \
+#   -o "$OUTPUT_FILE" &> "$LOG_FILE"
+
+## opt for simd
+# "$LIBRA_OPT_BIN" \
+#   --verify-each \
+#   --mlir-print-ir-after-all \
+#   --convert-to-simd \
+#   --debug-only=convert-to-simd \
+#   "$INPUT_FILE" \
+#   -o "$OUTPUT_FILE" &> "$LOG_FILE"
+
+## opt for mode-select
+# "$LIBRA_OPT_BIN" \
+#   --verify-each \
+#   --mlir-print-ir-after-all \
+#   --mode-select \
+#   --mode-select-cost-table="$COST_TABLE_PATH" \
+#   --debug-only=mode-select \
+#   "$INPUT_FILE" \
+#   -o "$OUTPUT_FILE" &> "$LOG_FILE"
 
 echo "Done: $OUTPUT_FILE"

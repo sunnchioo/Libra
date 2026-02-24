@@ -45,7 +45,7 @@ int main(int argc, char** argv) {
     mlir::libra::sisd::registerSISDOptPasses();
     mlir::libra::mdsel::registerMDSELOptPasses();
     mlir::libra::parallel::registerPARALLELOptPasses();
-    // mlirEnableGlobalDebug(true);
+
     return mlir::asMainReturnCode(
         mlir::MlirOptMain(argc, argv, "libra optimizer driver\n", registry));
 }

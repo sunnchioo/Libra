@@ -32,7 +32,8 @@ def SIMD_SIMDCipherType : SIMD_Type<"SIMDCipher", "simdcipher"> {
     "Type":$elementType
   );
 
-  let assemblyFormat = "`<`$level`x`$plaintextCount`x`$elementType`>`";
+  // let assemblyFormat = "`<`$level`x`$plaintextCount`x`$elementType`>`";
+  let assemblyFormat = "`<` $level `x` custom<CipherDim>($plaintextCount) `x` $elementType `>`";
 }
 
 

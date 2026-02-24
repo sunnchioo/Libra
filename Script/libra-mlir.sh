@@ -1,57 +1,52 @@
 #!/bin/bash
 # ---------------------------------------------------------
-# Compile ONE input C file to ONE output MLIR file.
-#
-# Usage:
-#   ./libra-mlir.sh <input.c> <output.mlir> [vector_size]
+# Polygeist Compiler Script
+# Purpose: C -> MLIR -> polygeist-opt (No Vectorization)
+# Output: Placed in the same directory as the input file
 # ---------------------------------------------------------
 
 set -euo pipefail
 
-if [ $# -lt 2 ]; then
-  echo "Usage: $0 <input.c> <output.mlir> [vector_size]" >&2
+# Check if at least input file is provided
+if [ $# -lt 1 ]; then
+  echo "Usage: $0 <input.c> [output.mlir]" >&2
   exit 1
 fi
 
 INPUT_FILE="$1"
-OUTPUT_FILE="$2"
-VECTOR_SIZE="${3:-32768}"
+IN_DIR=$(cd "$(dirname "$INPUT_FILE")" && pwd)
+IN_BASE=$(basename "$INPUT_FILE")
 
-# --- Resolve paths based on script location ---
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+# Handle default output filename: if $2 is missing, use input_name.mlir
+if [ -z "${2:-}" ]; then
+    # Strip the extension from input filename and append .mlir
+    OUTPUT_FILENAME="${IN_BASE%.*}.mlir"
+else
+    OUTPUT_FILENAME="$2"
+fi
+
+OUTPUT_FILE="${IN_DIR}/${OUTPUT_FILENAME}"
+TMP_MLIR_FILE="${OUTPUT_FILE}.tmp"
 
 # --- Tool paths ---
+REPO_ROOT="/mnt/data0/home/syt/Libra"
 POLYGEIST_BIN_DIR="${REPO_ROOT}/Tool/Polygeist/build/bin"
 CGEIST_BIN="${POLYGEIST_BIN_DIR}/cgeist"
 POLYGEIST_OPT_BIN="${POLYGEIST_BIN_DIR}/polygeist-opt"
 
-# --- Validate ---
-if [ ! -f "$INPUT_FILE" ]; then
-  echo "Error: input file not found: $INPUT_FILE" >&2
-  exit 2
-fi
-
-if [ ! -x "$CGEIST_BIN" ]; then
-  echo "Error: cgeist not found or not executable: $CGEIST_BIN" >&2
-  exit 3
-fi
-
-if [ ! -x "$POLYGEIST_OPT_BIN" ]; then
-  echo "Error: polygeist-opt not found or not executable: $POLYGEIST_OPT_BIN" >&2
-  exit 4
-fi
-
-# Ensure output dir exists
-OUT_DIR="$(dirname "$OUTPUT_FILE")"
-mkdir -p "$OUT_DIR"
-
-TMP_MLIR_FILE="${OUTPUT_FILE}.tmp"
+# --- Validate tools ---
+for tool in "$CGEIST_BIN" "$POLYGEIST_OPT_BIN"; do
+  if [ ! -x "$tool" ]; then
+    echo "Error: Tool not found or not executable: $tool" >&2
+    exit 3
+  fi
+done
 
 echo "--------------------------------------------------"
-echo "Input:      $INPUT_FILE"
-echo "Output:     $OUTPUT_FILE"
+echo "Input:  $INPUT_FILE"
+echo "Output: $OUTPUT_FILE"
 
+# 1. Convert C to initial MLIR using cgeist
 "$CGEIST_BIN" "$INPUT_FILE" \
   -function=* \
   -S \
@@ -60,21 +55,24 @@ echo "Output:     $OUTPUT_FILE"
   -raise-scf-to-affine \
   -o "$TMP_MLIR_FILE"
 
+# 2. Optimize MLIR using polygeist-opt (Vectorization removed)
 "$POLYGEIST_OPT_BIN" "$TMP_MLIR_FILE" \
-  -canonicalize -cse \
-  -affine-loop-invariant-code-motion \
-  -affine-loop-normalize \
-  -affine-scalrep \
-  -canonicalize -cse \
-  -affine-super-vectorize="virtual-vector-size=${VECTOR_SIZE} test-fastest-varying=0 vectorize-reductions=true" \
-  -canonicalize -cse \
-  -affine-simplify-structures \
+  --canonicalize --cse \
+  --sccp \
+  --affine-loop-normalize \
+  --canonicalize --cse \
   -o "$OUTPUT_FILE"
 
+
+# Remove the temporary intermediate file
 rm -f "$TMP_MLIR_FILE"
 
-# Post-process output (keep same behavior as original)
-sed -i -E 's/^module attributes.*/module {/' "$OUTPUT_FILE"
-sed -i -E 's/(func\.func[^{]*?)\s+attributes\s*\{[^}]+\}/\1/' "$OUTPUT_FILE"
-
-echo "Done: $OUTPUT_FILE"
+# 3. Post-processing: Clean module and function attributes
+if [ -f "$OUTPUT_FILE" ]; then
+    sed -i -E 's/^module attributes.*/module {/' "$OUTPUT_FILE"
+    sed -i -E 's/(func\.func[^{]*?)\s+attributes\s*\{[^}]+\}/\1/' "$OUTPUT_FILE"
+    echo "Done: Successfully generated $OUTPUT_FILE"
+else
+    echo "Error: Failed to generate $OUTPUT_FILE" >&2
+    exit 4
+fi

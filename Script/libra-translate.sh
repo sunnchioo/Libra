@@ -49,7 +49,7 @@ echo "--------------------------------------------------"
 : > "$LOG_FILE"
 
 "$LIBRA_TRANSLATE_BIN" \
-  -emit-libra-backend \
+  --emit-libra-backend \
   --allow-unregistered-dialect \
   "$INPUT_FILE" \
   -o "$OUTPUT_FILE" &> "$LOG_FILE"

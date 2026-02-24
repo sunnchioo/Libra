@@ -1,10 +1,8 @@
 build/*
 
-install/*
+# HElib/*
 
-test/Tool/toy/*
-!test/Tool/toy/*.cpp
-!test/Tool/toy/*.sh
+log/*
 
 ### VisualStudioCode template
 .vscode/*

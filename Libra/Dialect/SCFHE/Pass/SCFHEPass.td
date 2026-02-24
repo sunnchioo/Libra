@@ -16,4 +16,22 @@ def ConvertToSCFHEPass : Pass<"convert-to-scfhe", "::mlir::ModuleOp"> {
   ];
 }
 
+def AutoAnnotateSCFHEPass : Pass<"auto-annotate-scfhe", "::mlir::ModuleOp"> {
+  let summary = "Automatically annotates functions for SCFHE encryption";
+  let description = [{
+    Scans the module and adds the 'scfhe.crypto' attribute to functions 
+    that perform heavy arithmetic operations, marking them for HE conversion.
+    Skips 'main' and I/O functions.
+  }];
+
+  let dependentDialects = [
+    "::mlir::libra::scfhe::SCFHEDialect",
+    "::mlir::memref::MemRefDialect",
+    "::mlir::arith::ArithDialect"
+  ];
+
+  // 这里的 constructor 必须和你 C++ (SCFHEPass.h) 中声明的函数名完全一致
+  // let constructor = "mlir::libra::scfhe::createAutoAnnotateSCFHEPass()";
+}
+
 #endif // PASS_SCFHE_PASS_TD_

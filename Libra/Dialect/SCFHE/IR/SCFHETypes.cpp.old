@@ -1,0 +1,40 @@
+#include "SCFHETypes.h"
+#include "SCFHEDialect.h" // 确保包含 Dialect 定义
+#include "mlir/IR/Builders.h"
+#include "mlir/IR/DialectImplementation.h"
+#include "llvm/ADT/TypeSwitch.h"
+
+using namespace mlir;
+using namespace mlir::libra::scfhe;
+
+// === 1. 解析/打印 Helper 函数 ===
+// (必须放在 include .inc 之前)
+static ParseResult parseCipherDim(AsmParser& parser, int64_t& dim) {
+    if (succeeded(parser.parseOptionalQuestion())) {
+        dim = -1;
+        return success();
+    }
+    return parser.parseInteger(dim);
+}
+
+static void printCipherDim(AsmPrinter& printer, int64_t dim) {
+    if (dim == -1)
+        printer << "?";
+    else
+        printer << dim;
+}
+
+// === 2. 生成类型具体实现 ===
+// 这里有完整的 Storage 定义，所以在这里注册是安全的
+#define GET_TYPEDEF_CLASSES
+#include "SCFHETypes.cpp.inc"
+
+// === 3. 实现注册函数 ===
+namespace mlir::libra::scfhe {
+    void registerSCFHETypes(mlir::Dialect& dialect) {
+        dialect.addTypes<
+#define GET_TYPEDEF_LIST
+#include "SCFHETypes.cpp.inc"
+            >();
+    }
+}

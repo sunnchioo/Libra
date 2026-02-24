@@ -13,17 +13,13 @@ class SCFHE_Type<string name, string typeMnemonic, list<Trait> traits = []>
   let mnemonic = typeMnemonic;
 }
 
-def SCFHE_SCFHECipherType : SCFHE_Type<"SCFHECipher", "scfhecipher"> {
+def SCFHE_SCFHECipherType : SCFHE_Type<"SCFHECipher", "scfhecipher", [MemRefElementTypeInterface]> {
   let summary = "Ciphertext type with element type and plaintext count";
   let description = [{
     Represents a ciphertext encoding a fixed number of plaintexts.
-
     Syntax:
-      !scfhe.scfhecipher<Nxetype>
-
-    Example:
-      !scfhe.scfhecipher<8xi64>
-      !scfhe.scfhecipher<1xf64>
+      !scfhe.scfhecipher<NxType>
+      !scfhe.scfhecipher<?xType>
   }];
 
   let parameters = (ins
@@ -31,9 +27,19 @@ def SCFHE_SCFHECipherType : SCFHE_Type<"SCFHECipher", "scfhecipher"> {
     "Type":$elementType
   );
 
-  let assemblyFormat = "`<`$plaintextCount`x`$elementType`>`";
+  let assemblyFormat = "`<` custom<CipherDim>($plaintextCount) `x` $elementType `>`";
+
+  let builders = [
+    TypeBuilder<(ins "Type":$elementType), [{
+      return Base::get(context, -1, elementType); 
+    }]>
+  ];
+
+  let extraClassDeclaration = [{
+    static constexpr int64_t kDynamicSize = -1;
+    bool isDynamic() const { return getPlaintextCount() == kDynamicSize; }
+    bool hasStaticShape() const { return !isDynamic(); }
+  }];
 }
-
-
 
 #endif // IR_SCFHETYPES_TD_

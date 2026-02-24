@@ -13,8 +13,8 @@ add_public_tablegen_target(SIMDDialectIncGen)
 
 add_mlir_dialect_library(MLIRSIMDDialect
   SIMDDialect.cpp
-  SIMDOps.cpp
-  SIMDTypes.cpp
+  # SIMDOps.cpp
+  # SIMDTypes.cpp
 
   DEPENDS
   SIMDDialectIncGen

@@ -1,0 +1,63 @@
+module attributes {he.config = {mode = "SISD"}} {
+  llvm.mlir.global internal constant @str0("%f + %f = %f\0A\00") {addr_space = 0 : i32}
+  llvm.func @printf(!llvm.ptr, ...) -> i32
+  func.func @random_real(%arg0: memref<?xf64>, %arg1: i32) {
+    %cst = arith.constant 4.000000e+00 : f64
+    %cst_0 = arith.constant 0x41DFFFFFFFC00000 : f64
+    %cst_1 = arith.constant -2.000000e+00 : f64
+    %0 = arith.index_cast %arg1 : i32 to index
+    affine.for %arg2 = 0 to %0 {
+      %1 = func.call @rand() : () -> i32
+      %2 = arith.sitofp %1 : i32 to f64
+      %3 = arith.divf %2, %cst_0 : f64
+      %4 = arith.mulf %3, %cst : f64
+      %5 = arith.addf %4, %cst_1 : f64
+      affine.store %5, %arg0[%arg2] : memref<?xf64>
+    }
+    return
+  }
+  func.func private @rand() -> i32
+  func.func @main() -> i32 {
+    %cst = arith.constant -2.000000e+00 : f64
+    %cst_0 = arith.constant 0x41DFFFFFFFC00000 : f64
+    %cst_1 = arith.constant 4.000000e+00 : f64
+    %0 = llvm.mlir.addressof @str0 : !llvm.ptr
+    %c0_i32 = arith.constant 0 : i32
+    %alloc = memref.alloc() : memref<10xf64>
+    %alloc_2 = memref.alloc() : memref<10xf64>
+    %alloc_3 = memref.alloc() : memref<10xf64>
+    affine.for %arg0 = 0 to 10 {
+      %6 = func.call @rand() : () -> i32
+      %7 = arith.sitofp %6 : i32 to f64
+      %8 = arith.divf %7, %cst_0 : f64
+      %9 = arith.mulf %8, %cst_1 : f64
+      %10 = arith.addf %9, %cst : f64
+      affine.store %10, %alloc[%arg0] : memref<10xf64>
+    }
+    affine.for %arg0 = 0 to 10 {
+      %6 = func.call @rand() : () -> i32
+      %7 = arith.sitofp %6 : i32 to f64
+      %8 = arith.divf %7, %cst_0 : f64
+      %9 = arith.mulf %8, %cst_1 : f64
+      %10 = arith.addf %9, %cst : f64
+      affine.store %10, %alloc_2[%arg0] : memref<10xf64>
+    }
+    %1 = sisd.encrypt %alloc : memref<10xf64> -> !sisd.sisdcipher<10 x i64>
+    %2 = sisd.encrypt %alloc_2 : memref<10xf64> -> !sisd.sisdcipher<10 x i64>
+    %3 = sisd.add %1 + %2 : !sisd.sisdcipher<10 x i64>
+    %4 = sisd.decrypt %3 : !sisd.sisdcipher<10 x i64> -> memref<10xf64>
+    memref.copy %4, %alloc_3 : memref<10xf64> to memref<10xf64>
+    %5 = llvm.getelementptr %0[0, 0] : (!llvm.ptr) -> !llvm.ptr, !llvm.array<14 x i8>
+    affine.for %arg0 = 0 to 10 {
+      %6 = affine.load %alloc[%arg0] : memref<10xf64>
+      %7 = affine.load %alloc_2[%arg0] : memref<10xf64>
+      %8 = affine.load %alloc_3[%arg0] : memref<10xf64>
+      %9 = llvm.call @printf(%5, %6, %7, %8) vararg(!llvm.func<i32 (ptr, ...)>) : (!llvm.ptr, f64, f64, f64) -> i32
+    }
+    memref.dealloc %alloc : memref<10xf64>
+    memref.dealloc %alloc_2 : memref<10xf64>
+    memref.dealloc %alloc_3 : memref<10xf64>
+    return %c0_i32 : i32
+  }
+}
+
