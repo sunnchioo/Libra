@@ -59,13 +59,13 @@ echo "Log  :   $LOG_FILE"
   --auto-annotate-scfhe \
   --convert-to-scfhe \
   --canonicalize \
-  --inline \
-  --canonicalize \
   --convert-to-simd \
   --debug-only=convert-to-simd \
+  --canonicalize \
   --mode-select \
   --mode-select-cost-table="$COST_TABLE_PATH" \
   --debug-only=mode-select \
+  --canonicalize \
   "$INPUT_FILE" \
   -o "$OUTPUT_FILE" &> "$LOG_FILE"
 

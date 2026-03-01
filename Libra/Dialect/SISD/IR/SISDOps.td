@@ -12,35 +12,43 @@ class SISD_Op<string mnemonic, list<Trait> traits = []> : Op<SISD_Dialect, mnemo
     let summary = "SISD dialect operations base class";
 }
 
-def SISDAddOp : SISD_Op<"add", [Pure, SameOperandsAndResultType]> {
+// ============================================================================
+// SISD 算术运算 (已移除 SameOperandsAndResultType 以完美支持密文-明文混合运算)
+// ============================================================================
+
+def SISDAddOp : SISD_Op<"add", [Pure]> {
     let summary = "Define an add operation.";
-    let description = [{
-        Define an add operation.
-    }];
-
-    let arguments = (ins 
-        AnyType:$input0,
-        AnyType:$input1);
-    let results = (outs AnyType:$res);
-
+    let arguments = (ins AnyType:$lhs, AnyType:$rhs);
+    let results = (outs AnyType:$result);
     let assemblyFormat = [{
-        $input0 `+` $input1 attr-dict `:` type($input0)
+        $lhs `+` $rhs attr-dict `:` type($lhs) `,` type($rhs) `->` type($result)
     }];
 }
 
-def SISDSubOp : SISD_Op<"sub", [Pure, SameOperandsAndResultType]> {
-    let summary = "Define an sub operation.";
-    let description = [{
-        Define an sub operation.
-    }];
-
-    let arguments = (ins 
-        AnyType:$input0,
-        AnyType:$input1);
-    let results = (outs AnyType:$res);
-
+def SISDSubOp : SISD_Op<"sub", [Pure]> {
+    let summary = "Define a sub operation.";
+    let arguments = (ins AnyType:$lhs, AnyType:$rhs);
+    let results = (outs AnyType:$result);
     let assemblyFormat = [{
-        $input0 `_` $input1 attr-dict `:` type($input0)
+        $lhs `_` $rhs attr-dict `:` type($lhs) `,` type($rhs) `->` type($result)
+    }];
+}
+
+def SISDMultOp : SISD_Op<"mult", [Pure]> {
+    let summary = "Define a mul operation.";
+    let arguments = (ins AnyType:$lhs, AnyType:$rhs);
+    let results = (outs AnyType:$result);
+    let assemblyFormat = [{
+        $lhs `*` $rhs attr-dict `:` type($lhs) `,` type($rhs) `->` type($result)
+    }];
+}
+
+def SISDDivOp : SISD_Op<"div", [Pure]> {
+    let summary = "Define a div operation.";
+    let arguments = (ins AnyType:$lhs, AnyType:$rhs);
+    let results = (outs AnyType:$result);
+    let assemblyFormat = [{
+        $lhs `,` $rhs attr-dict `:` type($lhs) `,` type($rhs) `->` type($result)
     }];
 }
 
@@ -68,6 +76,8 @@ def SISDCastSISDCipherToSIMDCipherOp : SISD_Op<"cast_to_simd", [Pure]> {
   let arguments = (ins AnyType:$input);
   let results = (outs AnyType:$result);
   let assemblyFormat = "$input attr-dict `:` type($input) `->` type($result)";
+
+  let hasCanonicalizer = 1;
 }
 
 def SISDRefreshOp : SISD_Op<"refresh", [Pure]> {
@@ -82,13 +92,20 @@ def SISDRefreshOp : SISD_Op<"refresh", [Pure]> {
   let assemblyFormat = "$input attr-dict `:` type($input) `->` type($result)";
 }
 
-def SISDLoadOp : SISD_Op<"load"> {
-    let summary = "Load a SISD cipher value";
-    let arguments = (ins AnyType:$src);
+// def SISDLoadOp : SISD_Op<"load"> {
+//     let summary = "Load a SISD cipher value";
+//     let arguments = (ins AnyType:$src);
+//     let results = (outs AnyType:$result);
+//     let assemblyFormat = [{
+//         $src `:` type($src) attr-dict `:` type($result)
+//     }];
+// }
+
+def SISDLoadOp : SISD_Op<"load", [Pure]> {
+    let summary = "Extract a scalar cipher from a SISD cipher array at a specific index";
+    let arguments = (ins AnyType:$array, Index:$index);
     let results = (outs AnyType:$result);
-    let assemblyFormat = [{
-        $src `:` type($src) attr-dict `:` type($result)
-    }];
+    let assemblyFormat = "$array `[` $index `]` attr-dict `:` type($array) `->` type($result)";
 }
 
 def SISDStoreOp : SISD_Op<"store"> {

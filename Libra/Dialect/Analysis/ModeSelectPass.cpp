@@ -6,6 +6,7 @@
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 #include "mlir/IR/Verifier.h"
 
+#include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/Dialect/Affine/IR/AffineOps.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
@@ -503,7 +504,7 @@ namespace mlir::libra::mdsel {
 
                             bool isDstSISD = (nd.mode == Mode::SISD);
 
-                            // 【核心修复】：只有当输入真的是密文时，才执行转换检查
+                            // 只有当输入真的是密文时，才执行转换检查
                             if (isa<simd::SIMDCipherType, sisd::SISDCipherType>(nv.getType())) {
                                 bool isSrcSISD = isa<sisd::SISDCipherType>(nv.getType());
 
@@ -626,13 +627,35 @@ namespace mlir::libra::mdsel {
                                 auto pred = cast<simd::SIMDCmpOp>(op).getPredicate();
                                 newOp = rewriter.create<simd::SIMDCmpOp>(op->getLoc(), resTy, newOps[0], newOps[1], pred);
                             } else if (isa<simd::SIMDDivOp>(op)) {
-                                newOp = rewriter.create<simd::SIMDDivOp>(op->getLoc(), resTy, newOps);
+                                if (nd.mode == Mode::SISD)
+                                    newOp = rewriter.create<sisd::SISDDivOp>(op->getLoc(), resTy, newOps);
+                                else
+                                    newOp = rewriter.create<simd::SIMDDivOp>(op->getLoc(), resTy, newOps);
+
                             } else if (isa<simd::SIMDReduceAddOp>(op)) {
                                 newOp = rewriter.create<simd::SIMDReduceAddOp>(op->getLoc(), resTy, newOps[0]);
-                            } else if (isa<simd::SIMDStoreOp>(op)) {
-                                rewriter.create<simd::SIMDStoreOp>(op->getLoc(), newOps[0], newOps[1]);
+
+                                // ==========================================
+                                // 【修复点 1】：新增 LoadOp 的重写支持
+                                // ==========================================
+                            } else if (isa<simd::SIMDLoadOp, sisd::SISDLoadOp>(op)) {
+                                if (nd.mode == Mode::SISD)
+                                    newOp = rewriter.create<sisd::SISDLoadOp>(op->getLoc(), resTy, newOps[0], newOps[1]);
+                                else
+                                    newOp = rewriter.create<simd::SIMDLoadOp>(op->getLoc(), resTy, newOps[0], newOps[1]);
+
+                                // ==========================================
+                                // 【修复点 2】：完善 StoreOp (支持 SISD 并处理孤立返回)
+                                // ==========================================
+                            } else if (isa<simd::SIMDStoreOp, sisd::SISDStoreOp>(op)) {
+                                if (nd.mode == Mode::SISD)
+                                    rewriter.create<sisd::SISDStoreOp>(op->getLoc(), newOps[0], newOps[1]);
+                                else
+                                    rewriter.create<simd::SIMDStoreOp>(op->getLoc(), newOps[0], newOps[1]);
+
                                 LLVM_DEBUG(llvm::dbgs() << "    - Created StoreOp (No Result)\n");
                                 continue;
+
                             } else if (isa<simd::SIMDRescaleOp>(op)) {
                                 auto inputCipher = newOps[0];
                                 int inputLevel = 0;
@@ -682,10 +705,39 @@ namespace mlir::libra::mdsel {
                             Value oldVal = op->getResult(i);
                             if (rewriteMap.count(oldVal)) {
                                 Value newVal = rewriteMap[oldVal];
-                                oldVal.replaceAllUsesWith(newVal);
+
+                                // 【关键修复】：保持给外部消费者（如 scf.yield）的类型契约不变
+                                if (oldVal.getType() != newVal.getType()) {
+                                    // 在旧 op 所在的位置插入马甲（此时旧 op 还没被删除）
+                                    rewriter.setInsertionPoint(op);
+                                    Value castBack;
+
+                                    // 根据类型差异，自动插入对应的互转 Cast 算子
+                                    if (isa<simd::SIMDCipherType>(oldVal.getType()) && isa<sisd::SISDCipherType>(newVal.getType())) {
+                                        castBack = rewriter.create<sisd::SISDCastSISDCipherToSIMDCipherOp>(
+                                                               op->getLoc(), oldVal.getType(), newVal)
+                                                       .getResult();
+                                    } else if (isa<sisd::SISDCipherType>(oldVal.getType()) && isa<simd::SIMDCipherType>(newVal.getType())) {
+                                        castBack = rewriter.create<simd::SIMDCastSIMDCipherToSISDCipherOp>(
+                                                               op->getLoc(), oldVal.getType(), newVal)
+                                                       .getResult();
+                                    } else {
+                                        // 保底的强制类型转换
+                                        castBack = rewriter.create<UnrealizedConversionCastOp>(
+                                                               op->getLoc(), oldVal.getType(), newVal)
+                                                       .getResult(0);
+                                    }
+
+                                    // 让那些没被重写的外部指令，继续使用包装回原类型的值
+                                    oldVal.replaceAllUsesWith(castBack);
+                                } else {
+                                    // 类型没变，安全地直接替换
+                                    oldVal.replaceAllUsesWith(newVal);
+                                }
                             }
                         }
 
+                        // 如果旧的值已经被全部替换干净了，安全销毁旧算子
                         if (op->use_empty()) {
                             rewriter.eraseOp(op);
                         } else {
@@ -696,136 +748,134 @@ namespace mlir::libra::mdsel {
                     // ------------------------------------------------------------
                     // 6. Fix Loop Signatures (Post-Processing)
                     // ------------------------------------------------------------
-                    LLVM_DEBUG(llvm::dbgs() << "\n[Post-Processing] Fixing Affine For Loops Signatures...\n");
-                    SmallVector<affine::AffineForOp> loopsToFix;
-                    func.walk([&](affine::AffineForOp forOp) {
+                    LLVM_DEBUG(llvm::dbgs() << "\n[Post-Processing] Fixing SCF For Loops Signatures...\n");
+
+                    // 辅助 Lambda：穿透讨厌的 Cast 面具，直达真实的底层类型
+                    auto peelCast = [](Value v) -> Value {
+                        if (auto castOp = v.getDefiningOp<sisd::SISDCastSISDCipherToSIMDCipherOp>())
+                            return castOp.getOperand();
+                        if (auto castOp = v.getDefiningOp<simd::SIMDCastSIMDCipherToSISDCipherOp>())
+                            return castOp.getOperand();
+                        if (auto castOp = v.getDefiningOp<UnrealizedConversionCastOp>())
+                            return castOp.getOperand(0);
+                        return v;
+                    };
+
+                    SmallVector<scf::ForOp> loopsToFix;
+                    func.walk([&](scf::ForOp forOp) {
                         if (forOp.getNumResults() == 0)
                             return;
                         loopsToFix.push_back(forOp);
                     });
 
-                    for (auto forOp : loopsToFix) {
-                        Block* body = forOp.getBody();
-                        auto yieldOp = cast<affine::AffineYieldOp>(body->getTerminator());
-
-                        bool needsUpdate = false;
-                        SmallVector<Type> newTypes;
-                        SmallVector<Value> newInits;
-
+                    for (scf::ForOp forOp : loopsToFix) {
+                        IRRewriter rewriter(forOp.getContext());
                         rewriter.setInsertionPoint(forOp);
 
-                        for (auto it : llvm::zip(forOp.getInits(), forOp.getRegionIterArgs(), yieldOp.getOperands())) {
-                            Value init = std::get<0>(it);
-                            Value yielded = std::get<2>(it);
+                        SmallVector<Value> newInits;
+                        bool needsFix = false;
 
-                            Type yieldTy = yielded.getType();
-                            Type initTy = init.getType();
-
-                            if (yieldTy != initTy) {
-                                needsUpdate = true;
-                                Value newInit = init;
-
-                                if (auto simdDst = dyn_cast<simd::SIMDCipherType>(yieldTy)) {
-                                    if (auto simdSrc = dyn_cast<simd::SIMDCipherType>(initTy)) {
-                                        if (simdSrc.getLevel() > simdDst.getLevel()) {
-                                            LLVM_DEBUG(llvm::dbgs() << "  - Inserting ModSwitch for Loop Init\n");
-                                            newInit = rewriter.create<simd::SIMDModSwitchOp>(forOp.getLoc(), yieldTy, init).getResult();
-                                        }
-                                    }
-                                }
-
-                                if (newInit.getType() != yieldTy) {
-                                    LLVM_DEBUG(llvm::dbgs() << "  - Inserting UnrealizedCast for Loop Init\n");
-                                    newInit = rewriter.create<UnrealizedConversionCastOp>(forOp.getLoc(), yieldTy, newInit).getResult(0);
-                                }
-
-                                newInits.push_back(newInit);
-                                newTypes.push_back(yieldTy);
-                            } else {
-                                newInits.push_back(init);
-                                newTypes.push_back(initTy);
-                            }
+                        // 穿透初始参数的 Cast
+                        for (Value init : forOp.getInitArgs()) {
+                            Value realInit = peelCast(init);
+                            newInits.push_back(realInit);
+                            if (realInit != init)
+                                needsFix = true;
                         }
 
-                        if (!needsUpdate)
+                        if (!needsFix)
                             continue;
 
-                        LLVM_DEBUG(llvm::dbgs() << "  - Rewriting Loop due to signature change.\n");
-
-                        auto newLoop = rewriter.create<affine::AffineForOp>(
+                        // 创建完全基于 SISD（或真实类型）的新循环
+                        auto newLoop = rewriter.create<scf::ForOp>(
                             forOp.getLoc(),
-                            forOp.getLowerBoundOperands(), forOp.getLowerBoundMap(),
-                            forOp.getUpperBoundOperands(), forOp.getUpperBoundMap(),
-                            forOp.getStep().getSExtValue(),
-                            newInits,
-                            [&](OpBuilder&, Location, Value, ValueRange) {});
+                            forOp.getLowerBound(),
+                            forOp.getUpperBound(),
+                            forOp.getStep(),
+                            newInits);
 
-                        Block* newBody = newLoop.getBody();
-                        newBody->clear();
+                        Region& oldRegion = forOp.getRegion();
+                        Region& newRegion = newLoop.getRegion();
+                        Block* oldBody = &oldRegion.front();
+                        Block* newBody = &newRegion.front();
 
-                        SmallVector<Value> mapArgs;
-                        mapArgs.push_back(newLoop.getInductionVar());
-                        for (auto arg : newLoop.getRegionIterArgs())
-                            mapArgs.push_back(arg);
-
-                        rewriter.mergeBlocks(body, newBody, mapArgs);
-
-                        for (size_t i = 0; i < newLoop.getRegionIterArgs().size(); ++i) {
-                            newLoop.getRegionIterArgs()[i].setType(newTypes[i]);
+                        // 更新循环体内参数的真实类型
+                        newBody->getArgument(0).setType(oldBody->getArgument(0).getType());
+                        for (size_t i = 0; i < newInits.size(); ++i) {
+                            newBody->getArgument(i + 1).setType(newInits[i].getType());
                         }
 
-                        for (size_t i = 0; i < forOp.getNumResults(); ++i) {
-                            Value oldRes = forOp.getResult(i);
-                            Value newRes = newLoop.getResult(i);
+                        rewriter.mergeBlocks(oldBody, newBody, newBody->getArguments());
 
+                        // 【核心修复】：修复 scf.yield，让它也穿透 Cast 直接返回真实类型
+                        auto yieldOp = cast<scf::YieldOp>(newBody->getTerminator());
+                        rewriter.setInsertionPoint(yieldOp);
+                        SmallVector<Value> newYields;
+                        for (Value y : yieldOp.getOperands()) {
+                            newYields.push_back(peelCast(y));
+                        }
+                        rewriter.replaceOpWithNewOp<scf::YieldOp>(yieldOp, newYields);
+
+                        // 把旧循环的调用者连接到新循环
+                        rewriter.setInsertionPointAfter(newLoop);
+                        for (auto [oldRes, newRes] : llvm::zip(forOp.getResults(), newLoop.getResults())) {
+                            // 为了桥接外部还没来得及清理的代码，我们反向贴一个 Cast。
+                            // 别担心，MLIR 的 Canonicalizer 会把这个 Cast 和下游的 Cast 瞬间消消乐掉！
                             if (oldRes.getType() != newRes.getType()) {
-                                Value castBack = rewriter.create<UnrealizedConversionCastOp>(
-                                                             forOp.getLoc(), oldRes.getType(), newRes)
-                                                     .getResult(0);
+                                Value castBack = rewriter.create<sisd::SISDCastSISDCipherToSIMDCipherOp>(
+                                                             newLoop.getLoc(), oldRes.getType(), newRes)
+                                                     .getResult();
                                 oldRes.replaceAllUsesWith(castBack);
                             } else {
                                 oldRes.replaceAllUsesWith(newRes);
                             }
                         }
-
-                        forOp.erase();
+                        rewriter.eraseOp(forOp);
                     }
 
-                    // ------------------------------------------------------------
-                    // 7. Fix Function Returns (Post-Processing)
-                    // ------------------------------------------------------------
-                    LLVM_DEBUG(llvm::dbgs() << "\n[Post-Processing] Fixing Function Returns...\n");
-                    func.walk([&](func::ReturnOp retOp) {
-                        rewriter.setInsertionPoint(retOp);
+                    // // ------------------------------------------------------------
+                    // // 7. Clean up redundant casts (Post-Processing)
+                    // // ------------------------------------------------------------
+                    // LLVM_DEBUG(llvm::dbgs() << "\n[Post-Processing] Cleaning up redundant casts...\n");
+                    // bool castChanged;
+                    // do {
+                    //     castChanged = false;
+                    //     SmallVector<Operation*> castsToErase;
 
-                        for (unsigned i = 0; i < retOp.getNumOperands(); ++i) {
-                            Value val = retOp.getOperand(i);
-                            Type expectedTy = func.getFunctionType().getResult(i);
+                    //     func.walk([&](Operation* op) {
+                    //         if (isa<sisd::SISDCastSISDCipherToSIMDCipherOp, simd::SIMDCastSIMDCipherToSISDCipherOp>(op)) {
+                    //             Value input = op->getOperand(0);
+                    //             Type inTy = input.getType();
+                    //             Type outTy = op->getResult(0).getType();
 
-                            if (val.getType() != expectedTy) {
-                                Value castedVal = val;
-                                LLVM_DEBUG(llvm::dbgs() << "  - Type mismatch at Return. Expected: " << expectedTy
-                                                        << ", Got: " << val.getType() << ". Inserting Cast.\n");
+                    //             // 情况 1：类型完全相同 (比如 sisd -> sisd)，这层面具毫无意义
+                    //             if (inTy == outTy) {
+                    //                 op->getResult(0).replaceAllUsesWith(input);
+                    //                 castsToErase.push_back(op);
+                    //                 return;
+                    //             }
 
-                                if (isa<simd::SIMDCipherType>(expectedTy) && isa<sisd::SISDCipherType>(val.getType())) {
-                                    castedVal = rewriter.create<sisd::SISDCastSISDCipherToSIMDCipherOp>(
-                                                            retOp.getLoc(), expectedTy, val)
-                                                    .getResult();
-                                } else if (isa<sisd::SISDCipherType>(expectedTy) && isa<simd::SIMDCipherType>(val.getType())) {
-                                    castedVal = rewriter.create<simd::SIMDCastSIMDCipherToSISDCipherOp>(
-                                                            retOp.getLoc(), expectedTy, val)
-                                                    .getResult();
-                                } else {
-                                    castedVal = rewriter.create<UnrealizedConversionCastOp>(
-                                                            retOp.getLoc(), expectedTy, val)
-                                                    .getResult(0);
-                                }
+                    //             // 情况 2：背靠背的互相抵消 (比如 sisd -> simd -> sisd)
+                    //             if (auto prevOp = input.getDefiningOp()) {
+                    //                 if (isa<sisd::SISDCastSISDCipherToSIMDCipherOp, simd::SIMDCastSIMDCipherToSISDCipherOp>(prevOp)) {
+                    //                     Value origInput = prevOp->getOperand(0);
+                    //                     // 如果转了两手之后，类型又回到了原点，直接把源头短接给下游
+                    //                     if (origInput.getType() == outTy) {
+                    //                         op->getResult(0).replaceAllUsesWith(origInput);
+                    //                         castsToErase.push_back(op);
+                    //                         return;
+                    //                     }
+                    //                 }
+                    //             }
+                    //         }
+                    //     });
 
-                                retOp.setOperand(i, castedVal);
-                            }
-                        }
-                    });
-                    // LLVM_DEBUG(llvm::dbgs() << "\n[ModeSel] Completed Function: @" << func.getName() << "\n");
+                    //     // 安全删除这些已经没用的废 Cast
+                    //     for (Operation* op : castsToErase) {
+                    //         op->erase();
+                    //         castChanged = true;
+                    //     }
+                    // } while (castChanged); // 循环直到再也找不到可以消除的 Cast 为止
 
                     // ====================================================================
                     // 8. 自动推断并生成全局配置属性，按需挂载到 Module 上

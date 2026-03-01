@@ -51,6 +51,7 @@ echo "--------------------------------------------------"
 "$LIBRA_TRANSLATE_BIN" \
   --emit-libra-backend \
   --allow-unregistered-dialect \
+  --debug-only=libra-translate \
   "$INPUT_FILE" \
   -o "$OUTPUT_FILE" &> "$LOG_FILE"
 

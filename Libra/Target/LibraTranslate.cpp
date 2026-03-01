@@ -22,8 +22,12 @@
 
 #include "llvm/ADT/TypeSwitch.h"
 #include "llvm/Support/raw_ostream.h"
+#include "llvm/Support/Debug.h"
 
 #include <string>
+
+// [新增] 定义 DEBUG_TYPE，方便你在编译后运行时追加 --debug-only=libra-translate 查看详细翻译流程
+#define DEBUG_TYPE "libra-translate"
 
 using namespace mlir;
 using namespace mlir::libra::backend;
@@ -33,9 +37,11 @@ using namespace mlir::libra::backend;
 // ============================================================================
 
 std::string LibraBackendEmitter::nameFor(Value v) {
+    // [修复] 使用静态计数器防止变量名冲突
+    static int valueCount = 0;
     if (nameTable.count(v))
         return nameTable[v];
-    std::string generated = "v" + std::to_string(nameTable.size());
+    std::string generated = "v" + std::to_string(valueCount++);
     nameTable[v] = generated;
     return generated;
 }
@@ -43,7 +49,8 @@ std::string LibraBackendEmitter::nameFor(Value v) {
 // 辅助函数：从类型（比如 memref<10xf64> 或 !sisd.sisdcipher<10xi64>）中提取 batch size
 static int64_t extractSize(Type t) {
     if (auto memTy = dyn_cast<MemRefType>(t)) {
-        return memTy.getShape()[0];
+        if (memTy.hasStaticShape() && memTy.getRank() > 0)
+            return memTy.getShape()[0];
     }
     // 对于 Opaque / 自定义 Cipher Type，采用字符串快提
     std::string typeStr;
@@ -85,11 +92,13 @@ LogicalResult LibraBackendEmitter::translate(Operation& op) {
         return failure();
     }
 
+    LLVM_DEBUG(llvm::dbgs() << "[libra-translate] Visiting Op: " << op.getName() << "\n");
+
     // Helper lambda for binary ops
-    auto emitBinary = [&](Operation* op, StringRef symbol) -> LogicalResult {
-        os << "  auto " << nameFor(op->getResult(0)) << " = "
-           << nameFor(op->getOperand(0)) << " " << symbol << " "
-           << nameFor(op->getOperand(1)) << ";\n";
+    auto emitBinary = [&](Operation* binOp, StringRef symbol) -> LogicalResult {
+        os << "  auto " << nameFor(binOp->getResult(0)) << " = "
+           << nameFor(binOp->getOperand(0)) << " " << symbol << " "
+           << nameFor(binOp->getOperand(1)) << ";\n";
         return success();
     };
 
@@ -118,64 +127,109 @@ LogicalResult LibraBackendEmitter::translate(Operation& op) {
             return success();
         }
     }
+    if (opName == "llvm.mlir.undef") {
+        // 直接在 C++ 里声明一个 0 占位
+        os << "  auto " << nameFor(op.getResult(0)) << " = 0; // llvm.mlir.undef\n";
+        return success();
+    }
 
     return llvm::TypeSwitch<Operation*, LogicalResult>(&op)
         // --- Functions ---
-        .Case<func::FuncOp>([&](auto op) { return this->emitFunc(op); })
-        .Case<func::ReturnOp>([&](auto op) { return this->emitReturn(op); })
-        .Case<func::CallOp>([&](auto op) { return this->emitFuncCall(op); })
+        .Case<func::FuncOp>([&](auto castOp) { return this->emitFunc(castOp); })
+        .Case<func::ReturnOp>([&](auto castOp) { return this->emitReturn(castOp); })
+        .Case<func::CallOp>([&](auto castOp) { return this->emitFuncCall(castOp); })
 
         // --- SISD Ops 核心翻译 (映射到 cuTLWE 和 evaluator) ---
-        .Case<mlir::libra::sisd::SISDEncryptOp>([&](auto op) {
-            return this->emitContextAwareCall(op, backend->getSISDEncrypt());
-        })
-        .Case<mlir::libra::sisd::SISDAddOp>([&](auto op) {
-            return this->emitContextAwareCall(op, backend->getSISDAddFunc());
-        })
-        .Case<mlir::libra::sisd::SISDSubOp>([&](auto op) {
-            return this->emitContextAwareCall(op, backend->getSISDSubFunc());
-        })
-        .Case<mlir::libra::sisd::SISDDecryptOp>([&](auto op) {
-            return this->emitContextAwareCall(op, backend->getSISDDecrypt());
-        })
-        .Case<mlir::libra::sisd::SISDMinOp>([&](auto op) {
-            return this->emitContextAwareCall(op, backend->getSISDMinFunc());
-        })
+        .Case<mlir::libra::sisd::SISDEncryptOp>([&](auto castOp) { return this->emitContextAwareCall(castOp, backend->getSISDEncrypt()); })
+        .Case<mlir::libra::sisd::SISDAddOp>([&](auto castOp) { return this->emitContextAwareCall(castOp, backend->getSISDAddFunc()); })
+        .Case<mlir::libra::sisd::SISDSubOp>([&](auto castOp) { return this->emitContextAwareCall(castOp, backend->getSISDSubFunc()); })
+        .Case<mlir::libra::sisd::SISDDecryptOp>([&](auto castOp) { return this->emitContextAwareCall(castOp, backend->getSISDDecrypt()); })
+        .Case<mlir::libra::sisd::SISDMinOp>([&](auto castOp) { return this->emitContextAwareCall(castOp, backend->getSISDMinFunc()); })
 
-        // --- SIMD Ops (保留) ---
-        .Case<mlir::libra::simd::SIMDAddOp>([&](auto op) { return this->emitBackendCall(op, backend->getSIMDAddFunc()); })
-        .Case<mlir::libra::simd::SIMDSubOp>([&](auto op) { return this->emitBackendCall(op, backend->getSIMDSubFunc()); })
-        .Case<mlir::libra::simd::SIMDMultOp>([&](auto op) { return this->emitBackendCall(op, backend->getSIMDMultFunc()); })
-
-        // --- Control Flow ---
-        .Case<affine::AffineForOp>([&](auto op) { return this->emitAffineFor(op); })
-        .Case<scf::IfOp>([&](auto op) { return this->emitScfIf(op); })
-        .Case<affine::AffineYieldOp>([&](auto op) { return success(); })
-        .Case<scf::YieldOp>([&](auto op) { return success(); })
-
-        // --- Arithmetics ---
-        .Case<arith::ConstantOp>([&](auto op) { return this->emitArithConstant(op); })
-        .Case<arith::AddFOp>([&](auto op) { return emitBinary(op, "+"); })
-        .Case<arith::SubFOp>([&](auto op) { return emitBinary(op, "-"); })
-        .Case<arith::MulFOp>([&](auto op) { return emitBinary(op, "*"); })
-        .Case<arith::DivFOp>([&](auto op) { return emitBinary(op, "/"); })
-        .Case<arith::IndexCastOp>([&](auto op) {
-            os << "  int " << nameFor(op->getResult(0)) << " = (int)" << nameFor(op->getOperand(0)) << ";\n";
+        // [新增] SISD Div 和 Load 算子支持
+        .Case<mlir::libra::sisd::SISDDivOp>([&](auto castOp) { return this->emitContextAwareCall(castOp, "FlyHE_SISDDiv"); })
+        .Case<mlir::libra::sisd::SISDLoadOp>([&](auto castOp) {
+            os << "  auto " << nameFor(castOp.getResult()) << " = " << nameFor(castOp.getOperand(0)) << "[" << nameFor(castOp.getOperand(1)) << "];\n";
             return success();
         })
-        .Case<arith::SIToFPOp>([&](auto op) {
-            os << "  double " << nameFor(op->getResult(0)) << " = (double)" << nameFor(op->getOperand(0)) << ";\n";
+
+        // --- SIMD Ops ---
+        .Case<mlir::libra::simd::SIMDAddOp>([&](auto castOp) { return this->emitBackendCall(castOp, backend->getSIMDAddFunc()); })
+        .Case<mlir::libra::simd::SIMDSubOp>([&](auto castOp) { return this->emitBackendCall(castOp, backend->getSIMDSubFunc()); })
+        .Case<mlir::libra::simd::SIMDMultOp>([&](auto castOp) { return this->emitBackendCall(castOp, backend->getSIMDMultFunc()); })
+
+        // --- Control Flow ---
+        .Case<affine::AffineForOp>([&](auto castOp) { return this->emitAffineFor(castOp); })
+
+        // [新增] 完美支持密态循环 scf::ForOp 和其迭代变量的映射
+        .Case<scf::ForOp>([&](scf::ForOp forOp) {
+            std::string iv = nameFor(forOp.getInductionVar());
+            std::string lb = nameFor(forOp.getLowerBound());
+            std::string ub = nameFor(forOp.getUpperBound());
+            std::string step = nameFor(forOp.getStep());
+
+            // 1. 初始化迭代参数 (iter_args)
+            for (auto it : llvm::zip(forOp.getRegionIterArgs(), forOp.getInitArgs())) {
+                os << "  auto " << nameFor(std::get<0>(it)) << " = " << nameFor(std::get<1>(it)) << ";\n";
+            }
+
+            // 2. 循环结构展开
+            os << "  for (int " << iv << " = " << lb << "; " << iv << " < " << ub << "; " << iv << " += " << step << ") {\n";
+            for (Operation& bodyOp : *forOp.getBody()) {
+                if (isa<scf::YieldOp>(bodyOp)) {
+                    // yield 操作映射回 iter_args
+                    auto yieldOp = cast<scf::YieldOp>(bodyOp);
+                    for (auto it : llvm::zip(forOp.getRegionIterArgs(), yieldOp.getOperands())) {
+                        os << "    " << nameFor(std::get<0>(it)) << " = " << nameFor(std::get<1>(it)) << ";\n";
+                    }
+                    continue;
+                }
+                if (failed(this->translate(bodyOp)))
+                    return failure();
+            }
+            os << "  }\n";
+
+            // 3. 将循环的最终产物赋予 forOp 的 result
+            for (auto it : llvm::zip(forOp.getResults(), forOp.getRegionIterArgs())) {
+                nameTable[std::get<0>(it)] = nameFor(std::get<1>(it));
+            }
+            return success();
+        })
+        .Case<scf::IfOp>([&](auto castOp) { return this->emitScfIf(castOp); })
+        .Case<affine::AffineYieldOp>([&](auto castOp) { return success(); })
+        .Case<scf::YieldOp>([&](auto castOp) { return success(); })
+
+        // --- Arithmetics ---
+        .Case<arith::ConstantOp>([&](auto castOp) { return this->emitArithConstant(castOp); })
+        .Case<arith::AddFOp>([&](auto castOp) { return emitBinary(castOp, "+"); })
+        .Case<arith::SubFOp>([&](auto castOp) { return emitBinary(castOp, "-"); })
+        .Case<arith::MulFOp>([&](auto castOp) { return emitBinary(castOp, "*"); })
+        .Case<arith::DivFOp>([&](auto castOp) { return emitBinary(castOp, "/"); })
+        .Case<arith::IndexCastOp>([&](auto castOp) {
+            os << "  int " << nameFor(castOp->getResult(0)) << " = (int)" << nameFor(castOp->getOperand(0)) << ";\n";
+            return success();
+        })
+        .Case<arith::SIToFPOp>([&](auto castOp) {
+            os << "  double " << nameFor(castOp->getResult(0)) << " = (double)" << nameFor(castOp->getOperand(0)) << ";\n";
             return success();
         })
 
         // --- Memory / Vector ---
-        .Case<memref::AllocOp>([&](auto op) { return this->emitMemRefAlloc(op); })
-        .Case<affine::AffineLoadOp>([&](auto op) { return this->emitAffineLoad(op); })
-        .Case<affine::AffineStoreOp>([&](auto op) { return this->emitAffineStore(op); })
+        .Case<memref::AllocOp>([&](auto castOp) { return this->emitMemRefAlloc(castOp); })
+
+        // [新增] 处理 memref::AllocaOp
+        .Case<memref::AllocaOp>([&](auto castOp) {
+            int64_t size = extractSize(castOp.getType());
+            os << "  std::vector<double> " << nameFor(castOp.getResult()) << "(" << size << ");\n";
+            return success();
+        })
+
+        .Case<affine::AffineLoadOp>([&](auto castOp) { return this->emitAffineLoad(castOp); })
+        .Case<affine::AffineStoreOp>([&](auto castOp) { return this->emitAffineStore(castOp); })
 
         // --- Fallback ---
-        .Default([&](Operation* op) {
-            return this->printOperation(op);
+        .Default([&](Operation* unknownOp) {
+            return this->printOperation(unknownOp);
         });
 }
 
@@ -204,11 +258,9 @@ LogicalResult LibraBackendEmitter::emitContextAwareCall(Operation* op, StringRef
         size = extractSize(op->getOperand(0).getType());
     }
 
-    // 拿到结果变量的名称
     std::string resName = nameFor(op->getResult(0));
     Type resType = op->getResult(0).getType();
 
-    // 1. 根据 MLIR 的类型系统，自动在 C++ 中生成预分配语句
     if (isa<mlir::libra::sisd::SISDCipherType>(resType)) {
         os << "  Pointer<cuTLWE<lwe_enc_lvl>> " << resName << "(" << size << ");\n";
     } else if (isa<mlir::libra::simd::SIMDCipherType>(resType)) {
@@ -216,12 +268,9 @@ LogicalResult LibraBackendEmitter::emitContextAwareCall(Operation* op, StringRef
     } else if (isa<MemRefType>(resType)) {
         os << "  std::vector<double> " << resName << "(" << size << ");\n";
     } else {
-        // Fallback，如果是标量或其他未知类型
         os << "  auto " << resName << ";\n";
     }
 
-    // 2. 调用修改后的 void 返回值的 Wrapper 函数
-    // 格式：FlyHE_SISDAdd(hectx, v3, v1, v2, 10);
     os << "  " << funcName << "(hectx, " << resName;
     for (Value arg : op->getOperands()) {
         os << ", " << nameFor(arg);
@@ -232,7 +281,6 @@ LogicalResult LibraBackendEmitter::emitContextAwareCall(Operation* op, StringRef
 }
 
 LogicalResult LibraBackendEmitter::emitFunc(func::FuncOp funcOp) {
-    // 忽略辅助测试函数
     if (funcOp.isPrivate() || funcOp.getName() == "random_real" || funcOp.getName() == "rand")
         return success();
 
@@ -243,8 +291,7 @@ LogicalResult LibraBackendEmitter::emitFunc(func::FuncOp funcOp) {
         std::string configStr = "FlyHEConfig::CreateSISD()";
         auto module = funcOp->getParentOfType<ModuleOp>();
 
-        if (auto dictAttr = module->getAttrOfType<DictionaryAttr>("flyhe.config")) {
-            // 注意这里：改成了全局的 dyn_cast_or_null<T>(...)
+        if (auto dictAttr = module->getAttrOfType<DictionaryAttr>("he.config")) {
             if (auto modeAttr = dyn_cast_or_null<StringAttr>(dictAttr.get("mode"))) {
                 std::string mode = modeAttr.getValue().str();
                 if (mode == "SISD") {
@@ -277,19 +324,14 @@ LogicalResult LibraBackendEmitter::emitFunc(func::FuncOp funcOp) {
 
         for (Block& block : funcOp.getBlocks()) {
             for (Operation& op : block) {
-                // if (isa<func::ReturnOp>(op))
-                //     continue;
                 if (failed(translate(op)))
                     return failure();
             }
         }
 
-        // os << "  return 0;\n";
         os << "}\n";
         return success();
     }
-
-    // 翻译其他函数...
     return success();
 }
 
@@ -306,7 +348,6 @@ LogicalResult LibraBackendEmitter::emitFuncCall(func::CallOp op) {
         os << "  int " << nameFor(op.getResult(0)) << " = std::rand();\n";
         return success();
     }
-    // 处理其他调用...
     return success();
 }
 
@@ -354,13 +395,26 @@ LogicalResult LibraBackendEmitter::emitMemRefAlloc(memref::AllocOp op) {
     return success();
 }
 
+// [修复] 防止被 canonicalize 的空 index 访问越界导致核心崩溃
 LogicalResult LibraBackendEmitter::emitAffineLoad(affine::AffineLoadOp op) {
-    os << "  auto " << nameFor(op.getResult()) << " = " << nameFor(op.getMemRef()) << "[" << nameFor(op.getIndices()[0]) << "];\n";
+    os << "  auto " << nameFor(op.getResult()) << " = " << nameFor(op.getMemRef());
+    if (op.getIndices().empty()) {
+        os << "[0];\n";
+    } else {
+        os << "[" << nameFor(op.getIndices()[0]) << "];\n";
+    }
     return success();
 }
 
+// [修复] 防止被 canonicalize 的空 index 访问越界导致核心崩溃
 LogicalResult LibraBackendEmitter::emitAffineStore(affine::AffineStoreOp op) {
-    os << "  " << nameFor(op.getMemRef()) << "[" << nameFor(op.getIndices()[0]) << "] = " << nameFor(op.getValueToStore()) << ";\n";
+    os << "  " << nameFor(op.getMemRef());
+    if (op.getIndices().empty()) {
+        os << "[0] = ";
+    } else {
+        os << "[" << nameFor(op.getIndices()[0]) << "] = ";
+    }
+    os << nameFor(op.getValueToStore()) << ";\n";
     return success();
 }
 
@@ -372,6 +426,7 @@ LogicalResult LibraBackendEmitter::printOperation(Operation* op) {
         return success();
     }
     os << "  // Unhandled MLIR op: " << name << "\n";
+    LLVM_DEBUG(llvm::dbgs() << "[libra-translate] Warning: Unhandled MLIR op -> " << name << "\n");
     return success();
 }
 

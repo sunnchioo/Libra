@@ -2,18 +2,21 @@
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
+#include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/Dialect/Vector/IR/VectorOps.h"
+
 #include "mlir/IR/PatternMatch.h"
+
+#include "mlir/Support/LLVM.h"
 #include "mlir/Transforms/DialectConversion.h" // 必须引入
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
-#include "mlir/Support/LLVM.h"
 #include "llvm/Support/Debug.h"
 
 #include "SCFHEOps.h"
 #include "SCFHETypes.h"
+#include "SIMDCommon.h"
 #include "SIMDOps.h"
 #include "SIMDPass.h"
-#include "SIMDCommon.h"
 
 #define DEBUG_TYPE "convert-to-simd"
 
@@ -52,6 +55,16 @@ namespace mlir::libra::simd {
             }
         };
 
+        // 辅助函数：穿透框架自动插入的类型强转 Cast，获取带有真实 Level 的底层密文
+        static Value peelCast(Value v) {
+            if (auto castOp = v.getDefiningOp<UnrealizedConversionCastOp>()) {
+                if (castOp.getInputs().size() == 1 && isa<SIMDCipherType>(castOp.getInputs()[0].getType())) {
+                    return castOp.getInputs()[0];
+                }
+            }
+            return v;
+        }
+
         //===----------------------------------------------------------------------===//
         // 2. Conversion Patterns (将 OpRewritePattern 改为 OpConversionPattern)
         //===----------------------------------------------------------------------===//
@@ -67,9 +80,9 @@ namespace mlir::libra::simd {
                 LLVM_DEBUG(llvm::dbgs() << "Converting Arithmetic Op: " << op->getName() << "\n");
 
                 auto ctx = rewriter.getContext();
-                // 注意：在 ConversionPattern 中，adaptor.getOperands() 拿到的已经是转换后的 SIMD 类型 Value
-                auto lhs = adaptor.getOperands()[0];
-                auto rhs = adaptor.getOperands()[1];
+
+                auto lhs = peelCast(adaptor.getOperands()[0]);
+                auto rhs = peelCast(adaptor.getOperands()[1]);
 
                 // 这里的推断逻辑保持不变，但输入类型已经是 SIMD 类型了
                 auto ta = dyn_cast<SIMDCipherType>(lhs.getType());
@@ -117,7 +130,10 @@ namespace mlir::libra::simd {
             using OpConversionPattern::OpConversionPattern;
             LogicalResult matchAndRewrite(scfhe::SCFHEDecryptOp op, OpAdaptor adaptor,
                                           ConversionPatternRewriter& rewriter) const override {
-                Value cipher = adaptor.getCipher();
+
+                // 【核心修改】：穿透强制转换，拿到真实的 Level 30 密文
+                Value cipher = peelCast(adaptor.getCipher());
+
                 rewriter.replaceOpWithNewOp<SIMDDecryptOp>(op, op.getResult().getType(), cipher);
                 return success();
             }
@@ -148,6 +164,84 @@ namespace mlir::libra::simd {
                 return success();
             }
         };
+
+        // 1. Cast 转换 (修复你现在的报错)
+        struct ConvertSCFHECastToSIMDPattern : public OpConversionPattern<scfhe::SCFHECastOp> {
+            using OpConversionPattern::OpConversionPattern;
+            LogicalResult matchAndRewrite(scfhe::SCFHECastOp op, OpAdaptor adaptor,
+                                          ConversionPatternRewriter& rewriter) const override {
+                Type resTy = getTypeConverter()->convertType(op.getResult().getType());
+                // 如果你的 SIMD 方案里有 simd.cast 则用 simd::CastOp，否则用内置 Cast 暂时代替
+                rewriter.replaceOpWithNewOp<UnrealizedConversionCastOp>(op, resTy, adaptor.getOperands()[0]);
+                return success();
+            }
+        };
+
+        // 2. Func Call 转换 (因为函数签名变了，调用处也得变)
+        struct ConvertCallOpPattern : public OpConversionPattern<func::CallOp> {
+            using OpConversionPattern::OpConversionPattern;
+            LogicalResult matchAndRewrite(func::CallOp op, OpAdaptor adaptor,
+                                          ConversionPatternRewriter& rewriter) const override {
+                SmallVector<Type> newResultTypes;
+                if (failed(getTypeConverter()->convertTypes(op.getResultTypes(), newResultTypes)))
+                    return failure();
+                rewriter.replaceOpWithNewOp<func::CallOp>(op, op.getCallee(), newResultTypes, adaptor.getOperands());
+                return success();
+            }
+        };
+
+        // 3. SCF 循环转换 (因为前一个 Pass 生成了带密文的 scf.for)
+        struct ConvertSCFForToSIMDPattern : public OpConversionPattern<scf::ForOp> {
+            using OpConversionPattern::OpConversionPattern;
+            LogicalResult matchAndRewrite(scf::ForOp op, OpAdaptor adaptor,
+                                          ConversionPatternRewriter& rewriter) const override {
+                // 1. 创建新的 scf.for。
+                // 注意：Builder 会自动创建一个全新的 Block，且该 Block 的参数已经被自动替换为 SIMD 类型！
+                auto newForOp = rewriter.create<scf::ForOp>(
+                    op.getLoc(), adaptor.getLowerBound(), adaptor.getUpperBound(),
+                    adaptor.getStep(), adaptor.getInitArgs());
+
+                // 2. 将旧 Block 中的所有指令“内联（转移）”到新 Block 的末尾。
+                // 这个神仙函数不仅会转移指令，还会自动把旧指令中用到的旧参数（如 f64），
+                // 自动重定向绑定到新 Block 的参数（即 SIMD Cipher）上！
+                rewriter.inlineBlockBefore(op.getBody(), newForOp.getBody(), newForOp.getBody()->end(),
+                                           newForOp.getBody()->getArguments());
+
+                // 3. 替换掉外层的旧 scf.for
+                rewriter.replaceOp(op, newForOp.getResults());
+                return success();
+            }
+        };
+
+        // 4. SCF Yield 转换
+        struct ConvertSCFYieldToSIMDPattern : public OpConversionPattern<scf::YieldOp> {
+            using OpConversionPattern::OpConversionPattern;
+            LogicalResult matchAndRewrite(scf::YieldOp op, OpAdaptor adaptor,
+                                          ConversionPatternRewriter& rewriter) const override {
+                rewriter.replaceOpWithNewOp<scf::YieldOp>(op, adaptor.getOperands());
+                return success();
+            }
+        };
+
+        // --- 将 scfhe.load 转换为 simd.load ---
+        struct ConvertSCFHELoadToSIMDPattern : public OpConversionPattern<scfhe::SCFHELoadOp> {
+            using OpConversionPattern::OpConversionPattern;
+
+            LogicalResult matchAndRewrite(scfhe::SCFHELoadOp op, OpAdaptor adaptor,
+                                          ConversionPatternRewriter& rewriter) const override {
+                // 1. 获取目标 SIMD 类型 (例如从 !scfhe.cipher<1xi64> 转为 !simd.cipher<31x1xi64>)
+                Type resultType = getTypeConverter()->convertType(op.getResult().getType());
+
+                // 2. 用新方言的 SIMDLoadOp 替换
+                // adaptor.getOperands()[0] 是已经转换为 SIMD 类型的数组
+                // adaptor.getOperands()[1] 是未发生改变的 Index 下标
+                rewriter.replaceOpWithNewOp<SIMDLoadOp>(
+                    op, resultType, adaptor.getOperands()[0], adaptor.getOperands()[1]);
+
+                return success();
+            }
+        };
+
         //===----------------------------------------------------------------------===//
         // 3. Phase 2 Patterns (Level 对齐，依然使用 Greedy)
         //===----------------------------------------------------------------------===//
@@ -192,10 +286,10 @@ namespace mlir::libra::simd {
                 ConversionTarget target(*ctx);
 
                 // 定义哪些方言是合法的，哪些必须转换
-                // 【补充了 LLVM::LLVMDialect，因为你的输入 IR 里面有 llvm.call 和 llvm.ptr】
                 target.addLegalDialect<mlir::libra::simd::SIMDDialect, arith::ArithDialect,
                                        affine::AffineDialect, memref::MemRefDialect,
-                                       LLVM::LLVMDialect>();
+                                       LLVM::LLVMDialect, scf::SCFDialect>();
+
                 target.addIllegalDialect<scfhe::SCFHEDialect>();
 
                 // =========================================================
@@ -225,15 +319,29 @@ namespace mlir::libra::simd {
                     return typeConverter.isLegal(argTypes);
                 });
 
+                target.addDynamicallyLegalOp<scf::ForOp>([&](scf::ForOp op) {
+                    return typeConverter.isLegal(op.getResultTypes()) &&
+                           typeConverter.isLegal(op.getRegionIterArgs());
+                });
+
+                target.addDynamicallyLegalOp<scf::YieldOp>([&](scf::YieldOp op) {
+                    return typeConverter.isLegal(op.getOperandTypes());
+                });
+
                 RewritePatternSet patterns(ctx);
 
                 populateFunctionOpInterfaceTypeConversionPattern<func::FuncOp>(patterns, typeConverter);
 
                 patterns.add<
-                    ConvertReturnOpPattern, // <--- 现在它会被正确触发了
+                    ConvertReturnOpPattern,
+                    ConvertCallOpPattern,
+                    ConvertSCFHECastToSIMDPattern,
+                    ConvertSCFForToSIMDPattern,
+                    ConvertSCFYieldToSIMDPattern,
                     ConvertSCFHEEncryptToSIMDPattern,
                     ConvertSCFHEDecryptToSIMDPattern,
                     ConvertAffineForToSIMDPattern,
+                    ConvertSCFHELoadToSIMDPattern,
                     SIMDArithmeticConversion<scfhe::SCFHEAddOp, SIMDAddOp>,
                     SIMDArithmeticConversion<scfhe::SCFHESubOp, SIMDSubOp>,
                     SIMDArithmeticConversion<scfhe::SCFHEMultOp, SIMDMultOp>,

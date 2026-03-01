@@ -67,11 +67,11 @@ def SCFHEDivOp : SCFHE_Op<"div", [Pure, DeclareOpInterfaceMethods<InferTypeOpInt
 
 // === 下面的保持不变 ===
 
-def SCFHELoadOp : SCFHE_Op<"load"> {
-    let summary = "Load a SCFHE cipher value";
-    let arguments = (ins AnyType:$src);
-    let results = (outs AnyType:$result);
-    let assemblyFormat = [{ $src `:` type($src) attr-dict `:` type($result) }];
+def SCFHELoadOp : SCFHE_Op<"load", [Pure]> {
+    let summary = "Extract a scalar cipher from a cipher array at a specific index";
+    let arguments = (ins SCFHE_SCFHECipherType:$array, Index:$index);
+    let results = (outs SCFHE_SCFHECipherType:$result);
+    let assemblyFormat = "$array `[` $index `]` attr-dict `:` type($array) `->` type($result)";
 }
 
 def SCFHECastOp : SCFHE_Op<"cast", [Pure]> {

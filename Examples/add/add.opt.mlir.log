@@ -68,7 +68,30 @@ Analyzing Function: @add
   Arg[3] Type: i64 -> [Ignored] (Not MemRef)
 === [Analysis] Finished ===
 
-[Pattern] Collapsing AffineForOp
+
+--- Executing Phase 3: Dialect Conversion ---
+
+[AffineForToSCFForPattern] Inspecting AffineForOp at loc("add.mlir":23:5)
+  -> [Rejected] Loop has NO iter_args. Delegating to Batching Pattern.
+
+[PlaintextBatchingPattern] Inspecting AffineForOp at loc("add.mlir":23:5)
+  -> [Accepted] No data dependency found. Starting flattening (batching)...
+  -> Extracted 0 yielded values.
+  -> Replaced loop induction variable with constant 0.
+  -> Inlined loop body successfully.
+  -> Erased original loop (no return values).
+[PlaintextBatchingPattern] Batching complete.
+
+[BinaryOpRewritePattern] Trying to convert arith.addf at loc("add.mlir":26:12)
+  -> LHS Type: !scfhe.scfhecipher<? x i64>
+  -> RHS Type: !scfhe.scfhecipher<? x i64>
+  -> [Success] Both LHS and RHS passed checks. Converted to SCFHE Binary Op.
+
+[StoreToReturnPattern] Inspecting AffineStoreOp...
+  -> Value to store Type: !scfhe.scfhecipher<? x i64>
+  -> [Success] Replacing store with func.return containing Cipher.
+--- Phase 3 Conversion Succeeded ---
+
 ====== SCFHE Pass Finished ======
 // -----// IR Dump After ConvertToSCFHEPass (convert-to-scfhe) //----- //
 module {
@@ -90,12 +113,13 @@ module {
     return
   }
   func.func private @rand() -> i32
-  func.func private @add(%arg0: !scfhe.scfhecipher<? x i64>, %arg1: !scfhe.scfhecipher<? x i64>) -> !scfhe.scfhecipher<? x i64> attributes {scfhe.crypto} {
+  func.func private @add(%arg0: !scfhe.scfhecipher<? x i64>, %arg1: !scfhe.scfhecipher<? x i64>, %arg2: i64) -> !scfhe.scfhecipher<? x i64> attributes {scfhe.crypto} {
     %0 = scfhe.add %arg0 + %arg1 : !scfhe.scfhecipher<? x i64>, !scfhe.scfhecipher<? x i64>
     return %0 : !scfhe.scfhecipher<? x i64>
   }
   func.func @main() -> i32 {
     %0 = llvm.mlir.addressof @str0 : !llvm.ptr
+    %c10_i64 = arith.constant 10 : i64
     %c0_i32 = arith.constant 0 : i32
     %c10_i32 = arith.constant 10 : i32
     %alloc = memref.alloc() : memref<10xf64>
@@ -107,7 +131,7 @@ module {
     call @random_real(%cast_1, %c10_i32) : (memref<?xf64>, i32) -> ()
     %1 = scfhe.encrypt %cast : memref<?xf64> -> !scfhe.scfhecipher<? x i64>
     %2 = scfhe.encrypt %cast_1 : memref<?xf64> -> !scfhe.scfhecipher<? x i64>
-    %3 = call @add(%1, %2) : (!scfhe.scfhecipher<? x i64>, !scfhe.scfhecipher<? x i64>) -> !scfhe.scfhecipher<? x i64>
+    %3 = call @add(%1, %2, %c10_i64) : (!scfhe.scfhecipher<? x i64>, !scfhe.scfhecipher<? x i64>, i64) -> !scfhe.scfhecipher<? x i64>
     %4 = scfhe.decrypt %3 : !scfhe.scfhecipher<? x i64> : memref<?xf64>
     memref.copy %4, %alloc_2 : memref<?xf64> to memref<10xf64>
     %5 = llvm.getelementptr %0[0, 0] : (!llvm.ptr) -> !llvm.ptr, !llvm.array<14 x i8>
@@ -147,12 +171,13 @@ module {
     return
   }
   func.func private @rand() -> i32
-  func.func private @add(%arg0: !scfhe.scfhecipher<? x i64>, %arg1: !scfhe.scfhecipher<? x i64>) -> !scfhe.scfhecipher<? x i64> attributes {scfhe.crypto} {
+  func.func private @add(%arg0: !scfhe.scfhecipher<? x i64>, %arg1: !scfhe.scfhecipher<? x i64>, %arg2: i64) -> !scfhe.scfhecipher<? x i64> attributes {scfhe.crypto} {
     %0 = scfhe.add %arg0 + %arg1 : !scfhe.scfhecipher<? x i64>, !scfhe.scfhecipher<? x i64>
     return %0 : !scfhe.scfhecipher<? x i64>
   }
   func.func @main() -> i32 {
     %0 = llvm.mlir.addressof @str0 : !llvm.ptr
+    %c10_i64 = arith.constant 10 : i64
     %c0_i32 = arith.constant 0 : i32
     %c10_i32 = arith.constant 10 : i32
     %alloc = memref.alloc() : memref<10xf64>
@@ -166,7 +191,7 @@ module {
     %2 = scfhe.cast %1 : <10 x i64> to <? x i64>
     %3 = scfhe.encrypt %alloc_0 : memref<10xf64> -> !scfhe.scfhecipher<10 x i64>
     %4 = scfhe.cast %3 : <10 x i64> to <? x i64>
-    %5 = call @add(%2, %4) : (!scfhe.scfhecipher<? x i64>, !scfhe.scfhecipher<? x i64>) -> !scfhe.scfhecipher<? x i64>
+    %5 = call @add(%2, %4, %c10_i64) : (!scfhe.scfhecipher<? x i64>, !scfhe.scfhecipher<? x i64>, i64) -> !scfhe.scfhecipher<? x i64>
     %6 = scfhe.decrypt %5 : !scfhe.scfhecipher<? x i64> : memref<?xf64>
     memref.copy %6, %alloc_2 : memref<?xf64> to memref<10xf64>
     %7 = llvm.getelementptr %0[0, 0] : (!llvm.ptr) -> !llvm.ptr, !llvm.array<14 x i8>
@@ -202,7 +227,7 @@ func.func @random_real(%arg0: memref<?xf64>, %arg1: i32) {
 }
 
 // -----// IR Dump After Canonicalizer (canonicalize) //----- //
-func.func private @add(%arg0: !scfhe.scfhecipher<? x i64>, %arg1: !scfhe.scfhecipher<? x i64>) -> !scfhe.scfhecipher<? x i64> attributes {scfhe.crypto} {
+func.func private @add(%arg0: !scfhe.scfhecipher<? x i64>, %arg1: !scfhe.scfhecipher<? x i64>, %arg2: i64) -> !scfhe.scfhecipher<? x i64> attributes {scfhe.crypto} {
   %0 = scfhe.add %arg0 + %arg1 : !scfhe.scfhecipher<? x i64>, !scfhe.scfhecipher<? x i64>
   return %0 : !scfhe.scfhecipher<? x i64>
 }
@@ -210,6 +235,7 @@ func.func private @add(%arg0: !scfhe.scfhecipher<? x i64>, %arg1: !scfhe.scfheci
 // -----// IR Dump After Canonicalizer (canonicalize) //----- //
 func.func @main() -> i32 {
   %0 = llvm.mlir.addressof @str0 : !llvm.ptr
+  %c10_i64 = arith.constant 10 : i64
   %c0_i32 = arith.constant 0 : i32
   %c10_i32 = arith.constant 10 : i32
   %alloc = memref.alloc() : memref<10xf64>
@@ -223,7 +249,7 @@ func.func @main() -> i32 {
   %2 = scfhe.cast %1 : <10 x i64> to <? x i64>
   %3 = scfhe.encrypt %alloc_0 : memref<10xf64> -> !scfhe.scfhecipher<10 x i64>
   %4 = scfhe.cast %3 : <10 x i64> to <? x i64>
-  %5 = call @add(%2, %4) : (!scfhe.scfhecipher<? x i64>, !scfhe.scfhecipher<? x i64>) -> !scfhe.scfhecipher<? x i64>
+  %5 = call @add(%2, %4, %c10_i64) : (!scfhe.scfhecipher<? x i64>, !scfhe.scfhecipher<? x i64>, i64) -> !scfhe.scfhecipher<? x i64>
   %6 = scfhe.decrypt %5 : !scfhe.scfhecipher<? x i64> : memref<?xf64>
   memref.copy %6, %alloc_2 : memref<?xf64> to memref<10xf64>
   %7 = llvm.getelementptr %0[0, 0] : (!llvm.ptr) -> !llvm.ptr, !llvm.array<14 x i8>

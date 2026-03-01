@@ -56,7 +56,11 @@ struct RefineEncryptShape : public OpRewritePattern<SCFHEEncryptOp> {
             staticInput = castOp.getSource();
         }
 
-        // 3. 检查源头是否为静态
+        if (!llvm::isa<MemRefType>(staticInput.getType())) {
+            return failure();
+        }
+
+        // 3. 检查源头是否为静态 (现在由于有了上面的 isa 检查，这里的 cast 绝对安全了)
         auto inputMemRefType = llvm::cast<MemRefType>(staticInput.getType());
         if (!inputMemRefType.hasStaticShape()) {
             return failure();
@@ -356,6 +360,7 @@ struct SCFHEInlinerInterface : public DialectInlinerInterface {
 #include "SCFHEDialect.cpp.inc"
 
 void SCFHEDialect::initialize() {
+
     addTypes<
 #define GET_TYPEDEF_LIST
 #include "SCFHETypes.cpp.inc"
@@ -364,5 +369,6 @@ void SCFHEDialect::initialize() {
 #define GET_OP_LIST
 #include "SCFHEOps.cpp.inc"
         >();
+
     addInterfaces<SCFHEInlinerInterface>();
 }

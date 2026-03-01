@@ -10,6 +10,7 @@ def ConvertToSCFHEPass : Pass<"convert-to-scfhe", "::mlir::ModuleOp"> {
   }];
 
   let dependentDialects = [
+    "::mlir::scf::SCFDialect",
     "::mlir::libra::scfhe::SCFHEDialect",
     "::mlir::memref::MemRefDialect",
     "::mlir::arith::ArithDialect"

@@ -75,6 +75,8 @@ def SIMDCastSIMDCipherToSISDCipherOp : SIMD_Op<"cast_to_sisd", [Pure]> {
 
   // Assembly matches the given example format exactly
   let assemblyFormat = "$input attr-dict `:` type($input) `->` type($result)";
+
+  let hasCanonicalizer = 1;
 }
 
 def SIMDBootOp : SIMD_Op<"boot", [Pure]> {
@@ -149,13 +151,20 @@ def SIMDModSwitchOp : SIMD_Op<"mod_switch", [Pure]> {
   let assemblyFormat = "$input attr-dict `:` type($input) `->` type($result)";
 }
 
-def SIMDLoadOp : SIMD_Op<"load"> {
-    let summary = "Load a SIMD cipher value";
-    let arguments = (ins AnyType:$src);
+// def SIMDLoadOp : SIMD_Op<"load"> {
+//     let summary = "Load a SIMD cipher value";
+//     let arguments = (ins AnyType:$src);
+//     let results = (outs AnyType:$result);
+//     let assemblyFormat = [{
+//         $src `:` type($src) attr-dict `:` type($result)
+//     }];
+// }
+
+def SIMDLoadOp : SIMD_Op<"load", [Pure]> {
+    let summary = "Extract a scalar cipher from a SIMD cipher array at a specific index";
+    let arguments = (ins AnyType:$array, Index:$index);
     let results = (outs AnyType:$result);
-    let assemblyFormat = [{
-        $src `:` type($src) attr-dict `:` type($result)
-    }];
+    let assemblyFormat = "$array `[` $index `]` attr-dict `:` type($array) `->` type($result)";
 }
 
 def SIMDStoreOp : SIMD_Op<"store"> {

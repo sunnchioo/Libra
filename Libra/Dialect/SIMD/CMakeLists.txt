@@ -7,6 +7,9 @@ include_directories(${CMAKE_CURRENT_BINARY_DIR}/../SCFHE/IR)
 include_directories(${CMAKE_CURRENT_SOURCE_DIR}/Pass)
 include_directories(${CMAKE_CURRENT_BINARY_DIR}/Pass)
 
+include_directories(${CMAKE_CURRENT_SOURCE_DIR}/../SISD/IR)
+include_directories(${CMAKE_CURRENT_BINARY_DIR}/../SISD/IR)
+
 include_directories(${CMAKE_CURRENT_SOURCE_DIR}/Common)
 include_directories(${CMAKE_CURRENT_BINARY_DIR}/Common)
 
