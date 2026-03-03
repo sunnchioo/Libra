@@ -1,17 +1,17 @@
 #ifndef IR_SIMDDialect_H_
 #define IR_SIMDDialect_H_
 
-#include "mlir/IR/Builders.h"               // from @llvm-project
-#include "mlir/IR/BuiltinTypes.h"           // from @llvm-project
-#include "mlir/IR/Dialect.h"                // from @llvm-project
-#include "mlir/IR/DialectImplementation.h"  // from @llvm-project
-#include "mlir/IR/OpDefinition.h"           // from @llvm-project
-#include "mlir/IR/PatternMatch.h"           // from @llvm-project
-#include "mlir/IR/Types.h"                  // from @llvm-project
+#include "mlir/IR/Builders.h"
+#include "mlir/IR/BuiltinTypes.h"
+#include "mlir/IR/Dialect.h"
+#include "mlir/IR/DialectImplementation.h"
+#include "mlir/IR/OpDefinition.h"
+#include "mlir/IR/PatternMatch.h"
+#include "mlir/IR/Types.h"
 
 #include "SIMDDialect.h.inc"
 
 #include "SIMDTypes.h"
 #include "SIMDOps.h"
 
-#endif  // IR_SIMDDialect_H_
+#endif // IR_SIMDDialect_H_

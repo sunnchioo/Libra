@@ -13,93 +13,143 @@ class SISD_Op<string mnemonic, list<Trait> traits = []> : Op<SISD_Dialect, mnemo
 }
 
 // ============================================================================
-// SISD 算术运算 (已移除 SameOperandsAndResultType 以完美支持密文-明文混合运算)
+// Group 1: Cryptographic I/O & Utility Operations
 // ============================================================================
 
+def SISDEncryptOp : SISD_Op<"encrypt", [Pure]> {
+    let summary = "Encrypt a plaintext value into a SISD cipher.";
+    let description = [{
+        Takes a plaintext value and produces an encrypted ciphertext.
+        This models the encryption stage at the boundary of HE computation.
+    }];
+    let arguments = (ins AnyType:$input);
+    let results = (outs AnyType:$cipher);
+    let assemblyFormat = "$input attr-dict `:` type($input) `->` type($cipher)";
+}
+
+def SISDDecryptOp : SISD_Op<"decrypt", [Pure]> {
+    let summary = "Decrypt a SISD ciphertext back into a plaintext value.";
+    let description = [{
+        Converts an encrypted value back into a plaintext float or integer,
+        simulating the decryption stage of FHE computation.
+    }];
+    let arguments = (ins AnyType:$cipher);
+    let results = (outs AnyType:$output);
+    let assemblyFormat = "$cipher attr-dict `:` type($cipher) `->` type($output)";
+}
+
+def SISDPrintOp : SISD_Op<"print"> {
+    let summary = "Print one or more SISD ciphertexts (for debug or output).";
+    let arguments = (ins Variadic<AnyType>:$inputs);
+    let results = (outs);
+    let assemblyFormat = "$inputs attr-dict `:` type($inputs)";
+}
+
+// ============================================================================
+// Group 2: Linear Arithmetic Operations (Level-Consuming)
+// ============================================================================
+// Note: In TFHE, Cipher-Cipher ops increase noise. Cipher-Plain ops do not.
+
 def SISDAddOp : SISD_Op<"add", [Pure]> {
-    let summary = "Define an add operation.";
+    let summary = "Ciphertext + Ciphertext addition.";
     let arguments = (ins AnyType:$lhs, AnyType:$rhs);
     let results = (outs AnyType:$result);
-    let assemblyFormat = [{
-        $lhs `+` $rhs attr-dict `:` type($lhs) `,` type($rhs) `->` type($result)
-    }];
+    let assemblyFormat = "$lhs `,` $rhs attr-dict `:` type($lhs) `,` type($rhs) `->` type($result)";
+}
+
+def SISDAddPlainOp : SISD_Op<"add_plain", [Pure]> {
+    let summary = "Ciphertext + Plaintext addition (Zero noise growth).";
+    let arguments = (ins AnyType:$cipher, AnyType:$plain);
+    let results = (outs AnyType:$result);
+    let assemblyFormat = "$cipher `,` $plain attr-dict `:` type($cipher) `,` type($plain) `->` type($result)";
 }
 
 def SISDSubOp : SISD_Op<"sub", [Pure]> {
-    let summary = "Define a sub operation.";
+    let summary = "Ciphertext - Ciphertext subtraction.";
     let arguments = (ins AnyType:$lhs, AnyType:$rhs);
     let results = (outs AnyType:$result);
-    let assemblyFormat = [{
-        $lhs `_` $rhs attr-dict `:` type($lhs) `,` type($rhs) `->` type($result)
-    }];
+    let assemblyFormat = "$lhs `,` $rhs attr-dict `:` type($lhs) `,` type($rhs) `->` type($result)";
 }
 
-def SISDMultOp : SISD_Op<"mult", [Pure]> {
-    let summary = "Define a mul operation.";
-    let arguments = (ins AnyType:$lhs, AnyType:$rhs);
+def SISDMultPlainOp : SISD_Op<"mult_plain", [Pure]> {
+    let summary = "Ciphertext * Plaintext multiplication (Cheap, linear noise growth).";
+    let arguments = (ins AnyType:$cipher, AnyType:$plain);
     let results = (outs AnyType:$result);
-    let assemblyFormat = [{
-        $lhs `*` $rhs attr-dict `:` type($lhs) `,` type($rhs) `->` type($result)
-    }];
+    let assemblyFormat = "$cipher `,` $plain attr-dict `:` type($cipher) `,` type($plain) `->` type($result)";
 }
 
-def SISDDivOp : SISD_Op<"div", [Pure]> {
-    let summary = "Define a div operation.";
-    let arguments = (ins AnyType:$lhs, AnyType:$rhs);
+// ============================================================================
+// Group 3: Non-Linear & Bootstrapping Operations
+// ============================================================================
+
+def SISDfbsOp : SISD_Op<"fbs", [Pure]> {
+    let summary = "Evaluate a Look-Up Table using Programmable Bootstrapping.";
+    let description = [{
+        This is the core of modern TFHE. It evaluates a function over the ciphertext
+        by encoding the function's truth table into the `fbs` attribute.
+        It inherently reduces the noise of the ciphertext (Bootstrapping).
+    }];
+    let arguments = (ins AnyType:$operand, DenseElementsAttr:$fbs);
     let results = (outs AnyType:$result);
-    let assemblyFormat = [{
-        $lhs `,` $rhs attr-dict `:` type($lhs) `,` type($rhs) `->` type($result)
-    }];
-}
-
-def SISDMinOp : SISD_Op<"min", [Pure]> {
-  let summary = "Finds the minimum value in a ciphertext vector, returning a scalar ciphertext.";
-  
-  let arguments = (ins AnyType:$operand);
-  let results = (outs AnyType:$result);
-
-  let assemblyFormat = "$operand attr-dict `:` type($operand) `->` type($result)";
-}
-
-def SISDCastSISDCipherToSIMDCipherOp : SISD_Op<"cast_to_simd", [Pure]> {
-  let summary = "Cast a !sisd.sisdcipher<MxT> to a !simd.simdcipher<NxMxT> by adding leading dimensions";
-  let description = [{
-    This operation performs a logical reinterpretation between SISD and SIMD
-    ciphertext representations, allowing the addition of one or more leading
-    dimensions (usually to restore the SIMD batch dimension dropped earlier).
-
-    Example:
-      %r = sisd.cast_to_simd %v :
-        !sisd.sisdcipher<1 x i64> -> !simd.simdcipher<12 x 1 x i64>
-  }];
-
-  let arguments = (ins AnyType:$input);
-  let results = (outs AnyType:$result);
-  let assemblyFormat = "$input attr-dict `:` type($input) `->` type($result)";
-
-  let hasCanonicalizer = 1;
+    let assemblyFormat = "$operand `,` $fbs attr-dict `:` type($operand) `->` type($result)";
 }
 
 def SISDRefreshOp : SISD_Op<"refresh", [Pure]> {
-  let summary = "Refresh the noise budget of a SISD ciphertext (Bootstrapping).";
-  let description = [{
-    Performs Programmable Bootstrapping (PBS) with an identity function to reduce noise.
-  }];
-
-  let arguments = (ins AnyType:$input);
-  let results = (outs AnyType:$result);
-
-  let assemblyFormat = "$input attr-dict `:` type($input) `->` type($result)";
+    let summary = "Refresh the noise budget of a SISD ciphertext.";
+    let description = [{
+        Performs Programmable Bootstrapping with an Identity function (f(x) = x)
+        purely to reduce noise, without altering the underlying plaintext value.
+    }];
+    let arguments = (ins AnyType:$input);
+    let results = (outs AnyType:$result);
+    let assemblyFormat = "$input attr-dict `:` type($input) `->` type($result)";
 }
 
-// def SISDLoadOp : SISD_Op<"load"> {
-//     let summary = "Load a SISD cipher value";
-//     let arguments = (ins AnyType:$src);
-//     let results = (outs AnyType:$result);
-//     let assemblyFormat = [{
-//         $src `:` type($src) attr-dict `:` type($result)
-//     }];
-// }
+def SISDCmpOp : SISD_Op<"cmp", [Pure]> {
+    let summary = "Compare two ciphertexts, returning an encrypted boolean (0 or 1).";
+    let description = [{
+        High-level operation. In TFHE, this will typically be lowered to a `sub` 
+        followed by a `fbs` that extracts the sign bit.
+    }];
+    let arguments = (ins AnyType:$lhs, AnyType:$rhs);
+    let results = (outs AnyType:$result);
+    let assemblyFormat = "$lhs `,` $rhs attr-dict `:` type($lhs) `,` type($rhs) `->` type($result)";
+}
+
+def SISDMinOp : SISD_Op<"min", [Pure]> {
+    let summary = "Finds the minimum value (High-level Op).";
+    let description = [{
+        High-level operation. Can be lowered to:
+        %cmp = sisd.cmp %a, %b
+        // Then algebraic combination or MUX using the %cmp result.
+    }];
+    let arguments = (ins AnyType:$lhs, AnyType:$rhs);
+    let results = (outs AnyType:$result);
+    let assemblyFormat = "$lhs `,` $rhs attr-dict `:` type($lhs) `,` type($rhs) `->` type($result)";
+}
+
+// ============================================================================
+// Group 4: Cipher Conversion
+// ============================================================================
+
+def SISDCastSISDCipherToSIMDCipherOp : SISD_Op<"cast_to_simd", [Pure]> {
+    let summary = "Cast a !sisd.sisdcipher to a !simd.simdcipher by adding leading dimensions";
+    let arguments = (ins AnyType:$input);
+    let results = (outs AnyType:$result);
+    let assemblyFormat = "$input attr-dict `:` type($input) `->` type($result)";
+    let hasCanonicalizer = 1;
+}
+
+// ============================================================================
+// Group 5: Memory & Data Movement
+// ============================================================================
+
+def SISDAllocaOp : SISD_Op<"alloca"> {
+    let summary = "Allocate encrypted memory for a single SISD cipher";
+    let arguments = (ins);
+    let results = (outs AnyType:$result);
+    let assemblyFormat = "`:` type($result) attr-dict";
+}
 
 def SISDLoadOp : SISD_Op<"load", [Pure]> {
     let summary = "Extract a scalar cipher from a SISD cipher array at a specific index";
@@ -110,94 +160,8 @@ def SISDLoadOp : SISD_Op<"load", [Pure]> {
 
 def SISDStoreOp : SISD_Op<"store"> {
     let summary = "Store a SISD cipher value into a SISD slot (or memref placeholder)";
-    let description = [{
-        Stores a value of type `!flyhe.cipher` into a destination which may be
-        a memref (before type conversion) or a !flyhe.cipher (after).
-    }];
-
-    let arguments = (ins 
-        AnyType:$value,
-        AnyType:$dest);
-
-    let assemblyFormat = "$value `,` $dest `:` type($value) `,` type($dest) attr-dict";
-}
-
-def VectorOfFloatTypeConstraint : Type<
-  CPred<"llvm::isa<::mlir::VectorType>($_self) && "
-        "llvm::isa<::mlir::FloatType>(llvm::cast<::mlir::VectorType>($_self).getElementType())">,
-  "vector of float type">;
-
-def SISDEncryptOp : SISD_Op<"encrypt", [Pure]> {
-    let summary = "Encrypt a plaintext floating-point value into a SISD cipher.";
-    let description = [{
-        Takes a plaintext value (e.g., f64) and produces an encrypted ciphertext
-        of type !sisd.cipher. This operation models encoding or encryption
-        under homomorphic encryption context.
-    }];
-
-    let arguments = (ins AnyType:$input);
-    
-    let results = (outs AnyType:$cipher);
-
-    let assemblyFormat = [{
-        $input attr-dict `:` type($input) `->` type($cipher)
-    }];
-}
-
-def SISDDecryptOp : SISD_Op<"decrypt", [Pure]> {
-    let summary = "Decrypt a SISD ciphertext back into a plaintext value or vector.";
-    let description = [{
-        Converts an encrypted !sisd.cipher value back into a plaintext float or vector,
-        simulating the decryption stage of FHE computation.
-
-        This operation can produce either a scalar float (e.g. f64)
-        or a vector of floats (e.g. vector<8xf64>), depending on the context.
-        It is typically inserted before vector.transfer_write to convert
-        ciphertext vectors back into plaintext data.
-    }];
-
-    let arguments = (ins AnyType:$cipher);
-
-    let results = (outs AnyType:$output);
-
-    let assemblyFormat = [{
-        $cipher attr-dict `:` type($cipher) `->` type($output)
-    }];
-}
-
-
-def SISDAllocaOp : SISD_Op<"alloca"> {
-  let summary = "Allocate encrypted memory for a single SISD cipher";
-  let description = [{
-    Allocate a 0-D memref whose element type must be the SISD cipher type.
-    Example assembly:
-      %c = sisd.alloca : memref<!sisd.sisdcipher>
-  }];
-
-  // The op has no operands and one result (an AnyType so parser can accept memref types).
-  let arguments = (ins);
-  let results = (outs AnyType:$result);
-
-  // Allow parser to print the result type
-  let assemblyFormat = "`:` type($result) attr-dict";
-}
-
-def SISDPrintOp : SISD_Op<"print", [Pure]> {
-    let summary = "Print one or more SISD ciphertexts (for debug or output).";
-    let description = [{
-        This operation takes one or more values of type `!sisd.cipher`
-        and conceptually prints their decrypted plaintext representation.
-        It has no result and is considered a side-effecting debug op (though
-        technically marked NoSideEffect for testing convenience).
-    }];
-
-    let arguments = (ins Variadic<SISD_SISDCipherType>:$inputs);
-
-    let results = (outs);
-
-    let assemblyFormat = [{
-        $inputs attr-dict `:` type($inputs)
-    }];
+    let arguments = (ins AnyType:$value, AnyType:$dest);
+    let assemblyFormat = "$value `,` $dest attr-dict `:` type($value) `,` type($dest)";
 }
 
 #endif  // SISDOPS_TD_
