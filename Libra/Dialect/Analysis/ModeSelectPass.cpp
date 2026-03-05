@@ -219,11 +219,24 @@ namespace mlir::libra::mdsel {
                     llvm::DenseMap<Operation*, SmallVector<Operation*, 4>> preds, succs;
                     for (Operation* op : ops) {
                         for (Value v : op->getOperands()) {
+                            Operation* defOp = nullptr;
+
+                            // 1. 常规情况：操作数由另一个算子定义
                             if (auto* def = v.getDefiningOp()) {
-                                if (std::find(ops.begin(), ops.end(), def) != ops.end()) {
-                                    preds[op].push_back(def);
-                                    succs[def].push_back(op);
+                                defOp = def;
+                            }
+                            // 2. [修复] 特殊情况：操作数是循环参数 (BlockArgument)
+                            else if (auto arg = dyn_cast<BlockArgument>(v)) {
+                                // 获取 Block 的拥有者 (即 scf.for)
+                                if (auto* ownerOp = arg.getOwner()->getParentOp()) {
+                                    defOp = ownerOp;
                                 }
+                            }
+
+                            // 建立连接
+                            if (defOp && std::find(ops.begin(), ops.end(), defOp) != ops.end()) {
+                                preds[op].push_back(defOp);
+                                succs[defOp].push_back(op);
                             }
                         }
                     }
@@ -307,6 +320,13 @@ namespace mlir::libra::mdsel {
                         for (auto* p : preds[op]) {
                             castCost += costModel.getCastCost(info[p].mode, targetMode, info[p].vectorCount);
                         }
+
+                        // [新增日志] 详细打印 Phase 1 / Propagation 的计算细节
+                        LLVM_DEBUG(llvm::dbgs() << "      Cost(" << getOpName(op) << ", "
+                                                << (targetMode == Mode::SIMD ? "SIMD" : "SISD") << ") = "
+                                                << "Op(" << opCost << ") + CastIn(" << castCost << ") = "
+                                                << (opCost + castCost) << "\n");
+
                         return opCost + castCost;
                     };
 
@@ -456,6 +476,9 @@ namespace mlir::libra::mdsel {
                         for (Operation* op : topo) {
                             auto& nd = info[op];
 
+                            // [新增] 显示当前 Op
+                            LLVM_DEBUG(llvm::dbgs() << "    [TD Eval] " << getOpName(op) << ":\n");
+
                             double total_SIMD = calcTotalCost(op, Mode::SIMD);
                             double total_SISD = calcTotalCost(op, Mode::SISD);
 
@@ -476,10 +499,6 @@ namespace mlir::libra::mdsel {
                                 if (nd.mode == Mode::SIMD) {
                                     propagateSIMDUp(op);
                                 }
-                                // else {
-                                //     // 当 add 变 SISD 时，这就把 encrypt 也拉成 SISD
-                                //     propagateSISDUp(op);
-                                // }
 
                                 goto start_bottom_up; // 立即跳出，进入下一阶段
                             }
@@ -540,6 +559,11 @@ namespace mlir::libra::mdsel {
                                 }
                             }
 
+                            // [新增日志] 详细打印 Phase 2 (Bottom-Up) 的计算细节
+                            LLVM_DEBUG(llvm::dbgs() << "    [BU Eval] " << getOpName(op) << ":\n"
+                                                    << "      SIMD | Self: " << cSelf_SIMD << " + OutCast: " << cOut_SIMD << " = " << (cSelf_SIMD + cOut_SIMD) << "\n"
+                                                    << "      SISD | Self: " << cSelf_SISD << " + OutCast: " << cOut_SISD << " = " << (cSelf_SISD + cOut_SISD) << "\n");
+
                             double total_SIMD = cSelf_SIMD + cOut_SIMD;
                             double total_SISD = cSelf_SISD + cOut_SISD;
 
@@ -560,8 +584,6 @@ namespace mlir::libra::mdsel {
                                 if (nd.mode == Mode::SIMD) {
                                     propagateSIMDUp(op);
                                 } else {
-                                    // [新增] 必须加上这一段！
-                                    // 当 add 变 SISD 时，强制把 encrypt 也拉成 SISD
                                     propagateSISDUp(op);
                                 }
 

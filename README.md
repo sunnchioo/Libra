@@ -14,7 +14,7 @@ The repository is organized as follows:
 ```text
 Libra                       – Root directory of the Libra compiler project
  |- build                   – Directory for compiled binaries and build artifacts
- |- doc                     – Project documentation and architecture designs
+ |- Doc                     – Project documentation and architecture designs
  |- HElib                   – Foundational FHE libraries
  |  └- FlyHE                – High-performance CUDA FHE library
  |- Libra                   – Core compiler source code
@@ -25,8 +25,7 @@ Libra                       – Root directory of the Libra compiler project
  |- Script                  – Automation scripts for the compilation pipeline
  |  |- libra-mlir.sh        – Script for C to MLIR frontend conversion
  |  |- libra-opt.sh         – Script for middle-end optimization passes
- |  |- libra-translate.sh   – Translation of IR to CUDA code
- |  └- libra-trans.py       – Script for final CUDA code generation 
+ |  └- libra-translate.sh   – Translation of IR to CUDA code
  |- Tool                    – External compiler infrastructure
  |  |- llvm-project         – Base LLVM/MLIR framework
  |  └- Polygeist            – C-to-MLIR frontend transformation tool
@@ -36,7 +35,7 @@ Libra                       – Root directory of the Libra compiler project
 ```
 
 For detailed functions and descriptions of each directory, please 
-refer to [Libra/doc/1.Project_Structure.md](doc/1.Project_Structure.md).
+refer to [Libra/Doc/1.Project_Structure.md](Doc/1.Project_Structure.md).
 
 
 ## Prerequisites
@@ -44,7 +43,7 @@ refer to [Libra/doc/1.Project_Structure.md](doc/1.Project_Structure.md).
 > **Notice:** To simplify the setup process and ensure environment consistency, we 
 provide a pre-configured [**Docker image**](https://hub.docker.com/r/suen0/libra_ae) with all toolchains 
 and dependencies pre-installed. The details for starting Docker are provided in 
-[Libra/doc/3.Docker_Setup.md](doc/3.Docker_Setup.md). You can pull the image 
+[Libra/Doc/3.Docker_Setup.md](Doc/3.Docker_Setup.md). You can pull the image 
 and start a container to build the Libra compiler immediately. 
 
 
@@ -173,7 +172,7 @@ The build artifacts (executables/libraries) will be produced under the `build` d
 
 ## Appendix
 
-The above steps describe how to reproduce the Libra compiler workflow. For more details on using Libra, please refer to [Libra/doc/2.Toolchain_of_Libra.md](doc/2.Toolchain_of_Libra.md).
+The above steps describe how to reproduce the Libra compiler workflow. For more details on using Libra, please refer to [Libra/Doc/2.Toolchain_of_Libra.md](Doc/2.Toolchain_of_Libra.md).
 
 
 ## License

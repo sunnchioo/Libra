@@ -55,7 +55,7 @@ echo "Output: $OUTPUT_FILE"
   -raise-scf-to-affine \
   -o "$TMP_MLIR_FILE"
 
-# 2. Optimize MLIR using polygeist-opt (Vectorization removed)
+# 2. Optimize MLIR using polygeist-opt
 "$POLYGEIST_OPT_BIN" "$TMP_MLIR_FILE" \
   --canonicalize --cse \
   --sccp \

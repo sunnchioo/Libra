@@ -33,7 +33,6 @@
 #include <memory>
 #include <cmath>
 
-// 使用 --debug-only=mode-select 查看详细日志
 #define DEBUG_TYPE "mode-select"
 
 using namespace mlir;
@@ -58,13 +57,9 @@ namespace mlir::libra::mdsel {
         constexpr int MAX_SIMD_LEVEL = 31;
         constexpr int BOOT_LEVEL = 17;
         constexpr int SLIM_BOOT_TRIGGER = 3;
-
-        // 增加迭代次数上限，因为乒乓策略每次只改一个点
+        // 既然有了蔓延机制，迭代次数不需要太多了，但保留足够余量
         constexpr int MAX_WAVE_ITERATIONS = 100;
 
-        // ============================================================
-        // Cost Model
-        // ============================================================
         struct CostModel {
             llvm::StringMap<llvm::DenseMap<int64_t, double>> costTable;
 
@@ -81,10 +76,8 @@ namespace mlir::libra::mdsel {
                     return;
                 }
                 llvm::Expected<llvm::json::Value> rootOrErr = llvm::json::parse(fileOrErr.get()->getBuffer());
-                if (!rootOrErr) {
-                    LLVM_DEBUG(llvm::dbgs() << "[ModeSel] JSON parse error\n");
+                if (!rootOrErr)
                     return;
-                }
                 auto* obj = rootOrErr->getAsObject();
                 if (!obj)
                     return;
@@ -113,7 +106,6 @@ namespace mlir::libra::mdsel {
                         }
                     }
                 }
-                LLVM_DEBUG(llvm::dbgs() << "[ModeSel] CostTable loaded from " << jsonFilename << "\n");
             }
 
             double lookup(StringRef key, int64_t idx) const {
@@ -123,7 +115,7 @@ namespace mlir::libra::mdsel {
                 auto jt = it->second.find(idx);
                 if (jt == it->second.end()) {
                     if (!it->second.empty())
-                        return it->second.begin()->second; // Fallback to max
+                        return it->second.begin()->second;
                     return INF_COST;
                 }
                 return jt->second;
@@ -153,24 +145,18 @@ namespace mlir::libra::mdsel {
             }
 
             double getOpCost(Operation* op, Mode m, int64_t param) const {
-                // Mult 在 SISD 下通常不支持或极其昂贵（除非是 MultPlain）
-                // 这里假设 SIMDMultOp 只能在 SIMD 模式下高效运行，除非它是 PlainMult
                 if (isa<simd::SIMDMultOp>(op) && m == Mode::SISD)
                     return INF_COST;
-
                 std::string key = getOpKey(op, m);
                 if (key.empty())
                     return 0.0;
-
                 int64_t lookupIndex = 0;
-                // SIMD 模式通常查 Level，除了 Min 等特殊算子
                 if (m == Mode::SIMD) {
                     if (isa<simd::SIMDMinOp>(op))
                         lookupIndex = getLogCount(param);
                     else
-                        lookupIndex = param; // Level
+                        lookupIndex = param;
                 } else {
-                    // SISD 模式查 Count (log2)
                     lookupIndex = getLogCount(param);
                 }
                 return lookup(key, lookupIndex);
@@ -188,9 +174,6 @@ namespace mlir::libra::mdsel {
             }
         };
 
-        // ============================================================
-        // Node Info
-        // ============================================================
         struct NodeInfo {
             Mode mode = Mode::SIMD;
             int finalLevel = MAX_SIMD_LEVEL;
@@ -198,9 +181,6 @@ namespace mlir::libra::mdsel {
             int64_t vectorCount = 8;
         };
 
-        // ============================================================
-        // Pass
-        // ============================================================
         class ConvertToModeSelectIR : public impl::ConvertToMDSELPassBase<ConvertToModeSelectIR> {
         public:
             using impl::ConvertToMDSELPassBase<ConvertToModeSelectIR>::ConvertToMDSELPassBase;
@@ -223,13 +203,8 @@ namespace mlir::libra::mdsel {
                     if (func.getName() != "main")
                         continue;
 
-                    LLVM_DEBUG({
-                        llvm::dbgs() << "\n=================================================================\n";
-                        llvm::dbgs() << "[ModeSel] Processing Function: @" << func.getName() << "\n";
-                        llvm::dbgs() << "=================================================================\n";
-                    });
+                    LLVM_DEBUG(llvm::dbgs() << "\n[ModeSel] Processing Function: @" << func.getName() << "\n");
 
-                    // 1. Build Graph
                     SmallVector<Operation*, 64> ops;
                     func.walk([&](Operation* op) {
                         if (!op || !op->getDialect())
@@ -253,7 +228,6 @@ namespace mlir::libra::mdsel {
                         }
                     }
 
-                    // Topological Sort
                     SmallVector<Operation*, 64> topo;
                     {
                         llvm::DenseMap<Operation*, int> indeg;
@@ -273,7 +247,6 @@ namespace mlir::libra::mdsel {
                         }
                     }
 
-                    // 2. Initialize (Default to SIMD)
                     llvm::DenseMap<Operation*, NodeInfo> info;
                     for (Operation* op : ops) {
                         info[op].mode = Mode::SIMD;
@@ -288,7 +261,188 @@ namespace mlir::libra::mdsel {
                         info[op].vectorCount = count;
                     }
 
-                    // 3. Wavefront Propagation Loop (Ping-Pong)
+                    // --- 核心工具函数：状态更新与代价评估 ---
+
+                    auto updateNodeState = [&](Operation* op) {
+                        auto& nd = info[op];
+                        int l_in = MAX_SIMD_LEVEL;
+                        if (!preds[op].empty()) {
+                            for (auto* p : preds[op])
+                                l_in = std::min(l_in, info[p].finalLevel);
+                        }
+                        bool mustBoot = (l_in <= SLIM_BOOT_TRIGGER);
+                        int opDepth = isa<simd::SIMDMultOp>(op) ? 1 : 0;
+
+                        if (nd.mode == Mode::SIMD) {
+                            nd.triggerBoot = mustBoot;
+                            nd.finalLevel = (mustBoot ? BOOT_LEVEL : l_in) - opDepth;
+                        } else {
+                            nd.triggerBoot = false;
+                            nd.finalLevel = l_in;
+                        }
+                    };
+
+                    auto calcTotalCost = [&](Operation* op, Mode targetMode) -> double {
+                        auto& nd = info[op];
+                        int64_t vecCnt = nd.vectorCount;
+
+                        double opCost = 0.0;
+                        if (targetMode == Mode::SIMD) {
+                            int l_in = MAX_SIMD_LEVEL;
+                            for (auto* p : preds[op])
+                                l_in = std::min(l_in, info[p].finalLevel);
+                            bool mustBoot = (l_in <= SLIM_BOOT_TRIGGER);
+
+                            if (isa<simd::SIMDMinOp>(op))
+                                opCost = costModel.getOpCost(op, Mode::SIMD, vecCnt);
+                            else
+                                opCost = costModel.getOpCost(op, Mode::SIMD, l_in);
+                            if (mustBoot)
+                                opCost += costModel.getBootCost(vecCnt);
+                        } else {
+                            opCost = costModel.getOpCost(op, Mode::SISD, vecCnt);
+                        }
+
+                        double castCost = 0.0;
+                        for (auto* p : preds[op]) {
+                            castCost += costModel.getCastCost(info[p].mode, targetMode, info[p].vectorCount);
+                        }
+                        return opCost + castCost;
+                    };
+
+                    // --- 优化1: 向下蔓延 SISD (当上游变 SISD 后，看看下游是不是也该变) ---
+                    auto propagateSISDDown = [&](Operation* startOp) {
+                        std::queue<Operation*> q;
+                        q.push(startOp);
+                        LLVM_DEBUG(llvm::dbgs() << "      >>> [Propagate] Starting SISD Wave from " << getOpName(startOp) << "\n");
+
+                        while (!q.empty()) {
+                            Operation* curr = q.front();
+                            q.pop();
+
+                            for (auto* child : succs[curr]) {
+                                auto& childNd = info[child];
+                                if (childNd.mode == Mode::SISD)
+                                    continue; // 已经是 SISD 了，不用管
+
+                                // 严格检查：如果 Child 变 SISD，会不会更便宜？
+                                double costAsSIMD = calcTotalCost(child, Mode::SIMD);
+                                double costAsSISD = calcTotalCost(child, Mode::SISD);
+
+                                if (costAsSISD < costAsSIMD) {
+                                    LLVM_DEBUG(llvm::dbgs() << "        -> Child " << getOpName(child) << " flips to SISD (Cascade)\n");
+                                    childNd.mode = Mode::SISD;
+                                    updateNodeState(child);
+                                    q.push(child); // 继续向下推
+                                }
+                            }
+                        }
+                    };
+
+                    // --- 优化2: 向上蔓延 SIMD (当下游变 SIMD 后，看看上游是不是也该变) ---
+                    auto propagateSIMDUp = [&](Operation* startOp) {
+                        std::queue<Operation*> q;
+                        q.push(startOp);
+                        LLVM_DEBUG(llvm::dbgs() << "      >>> [Propagate] Starting SIMD Wave from " << getOpName(startOp) << "\n");
+
+                        while (!q.empty()) {
+                            Operation* curr = q.front();
+                            q.pop();
+
+                            for (auto* p : preds[curr]) {
+                                auto& pNd = info[p];
+                                if (pNd.mode == Mode::SIMD)
+                                    continue; // 已经是 SIMD 了
+
+                                // 评估 Parent: 现在变成 SIMD 划算吗？
+                                // 这里主要看 output cast cost 是否减少
+                                double costSelf_SIMD = 0.0;
+                                // 估算 SIMD 自身成本
+                                int l_in = MAX_SIMD_LEVEL;
+                                for (auto* pp : preds[p])
+                                    l_in = std::min(l_in, info[pp].finalLevel);
+                                bool mustBoot = (l_in <= SLIM_BOOT_TRIGGER);
+                                if (isa<simd::SIMDMinOp>(p))
+                                    costSelf_SIMD = costModel.getOpCost(p, Mode::SIMD, pNd.vectorCount);
+                                else
+                                    costSelf_SIMD = costModel.getOpCost(p, Mode::SIMD, l_in);
+                                if (mustBoot)
+                                    costSelf_SIMD += costModel.getBootCost(pNd.vectorCount);
+
+                                double costSelf_SISD = costModel.getOpCost(p, Mode::SISD, pNd.vectorCount);
+
+                                double cOut_SIMD = 0.0, cOut_SISD = 0.0;
+                                for (auto* child : succs[p]) {
+                                    // 注意：此时 child (即 curr) 已经是 SIMD 了
+                                    cOut_SIMD += costModel.getCastCost(Mode::SIMD, info[child].mode, pNd.vectorCount);
+                                    cOut_SISD += costModel.getCastCost(Mode::SISD, info[child].mode, pNd.vectorCount);
+                                }
+
+                                double total_SIMD = costSelf_SIMD + cOut_SIMD;
+                                double total_SISD = costSelf_SISD + cOut_SISD;
+
+                                if (total_SIMD < total_SISD) {
+                                    LLVM_DEBUG(llvm::dbgs() << "        -> Parent " << getOpName(p) << " flips to SIMD (Cascade)\n");
+                                    pNd.mode = Mode::SIMD;
+                                    updateNodeState(p);
+                                    q.push(p); // 继续向上推
+                                }
+                            }
+                        }
+                    };
+
+                    // [新增] 优化3: 向上蔓延 SISD (当下游变 SISD 后，通知上游也变 SISD 以消除 Output Cast)
+                    auto propagateSISDUp = [&](Operation* startOp) {
+                        std::queue<Operation*> q;
+                        q.push(startOp);
+                        LLVM_DEBUG(llvm::dbgs() << "      >>> [Propagate] Starting SISD Wave UPWARDS from " << getOpName(startOp) << "\n");
+
+                        while (!q.empty()) {
+                            Operation* curr = q.front();
+                            q.pop();
+
+                            for (auto* p : preds[curr]) {
+                                auto& pNd = info[p];
+                                if (pNd.mode == Mode::SISD)
+                                    continue; // 已经是 SISD 了
+
+                                // 评估 Parent: 现在变成 SISD 划算吗？
+                                // 重点：Curr 已经变成 SISD 了，Parent 如果变 SISD，Output Cast 就会变成 0
+                                double cSelf_SISD = costModel.getOpCost(p, Mode::SISD, pNd.vectorCount);
+
+                                int l_in = MAX_SIMD_LEVEL;
+                                for (auto* pp : preds[p])
+                                    l_in = std::min(l_in, info[pp].finalLevel);
+                                bool mustBoot = (l_in <= SLIM_BOOT_TRIGGER);
+                                double cSelf_SIMD = 0.0;
+                                if (isa<simd::SIMDMinOp>(p))
+                                    cSelf_SIMD = costModel.getOpCost(p, Mode::SIMD, pNd.vectorCount);
+                                else
+                                    cSelf_SIMD = costModel.getOpCost(p, Mode::SIMD, l_in);
+                                if (mustBoot)
+                                    cSelf_SIMD += costModel.getBootCost(pNd.vectorCount);
+
+                                double cOut_SIMD = 0.0, cOut_SISD = 0.0;
+                                for (auto* child : succs[p]) {
+                                    // 计算输出转换成本
+                                    // 注意：此时 child (即 curr) 已经是 SISD 了
+                                    cOut_SIMD += costModel.getCastCost(Mode::SIMD, info[child].mode, pNd.vectorCount);
+                                    cOut_SISD += costModel.getCastCost(Mode::SISD, info[child].mode, pNd.vectorCount);
+                                }
+
+                                double total_SIMD = cSelf_SIMD + cOut_SIMD;
+                                double total_SISD = cSelf_SISD + cOut_SISD;
+
+                                if (total_SISD < total_SIMD) {
+                                    LLVM_DEBUG(llvm::dbgs() << "        -> Parent " << getOpName(p) << " flips to SISD (Cascade Up)\n");
+                                    pNd.mode = Mode::SISD;
+                                    updateNodeState(p);
+                                    q.push(p); // 继续向上推
+                                }
+                            }
+                        }
+                    };
+
                     bool changed = true;
                     int iter = 0;
 
@@ -297,145 +451,51 @@ namespace mlir::libra::mdsel {
                         changed = false;
                         iter++;
 
-                        // ==========================================================
-                        // Phase 1: Top-Down (Find SIMD -> SISD Boundary)
-                        // ==========================================================
-                        LLVM_DEBUG(llvm::dbgs() << "  [Phase 1] Top-Down: Searching for SIMD->SISD boundary...\n");
-
+                        // === Phase 1: Top-Down (主要负责触发 SISD 蔓延) ===
+                        LLVM_DEBUG(llvm::dbgs() << "  [Phase 1] Top-Down Scan\n");
                         for (Operation* op : topo) {
                             auto& nd = info[op];
-                            int64_t vecCnt = nd.vectorCount;
 
-                            // -- 1. Calculate Input Level --
-                            int l_in = MAX_SIMD_LEVEL;
-                            if (!preds[op].empty()) {
-                                for (auto* p : preds[op])
-                                    l_in = std::min(l_in, info[p].finalLevel);
-                            }
-                            bool mustBoot = (l_in <= SLIM_BOOT_TRIGGER);
+                            double total_SIMD = calcTotalCost(op, Mode::SIMD);
+                            double total_SISD = calcTotalCost(op, Mode::SISD);
 
-                            // -- 2. Calculate SIMD Cost --
-                            double cOp_SIMD = 0.0;
-                            if (isa<simd::SIMDMinOp>(op))
-                                cOp_SIMD = costModel.getOpCost(op, Mode::SIMD, vecCnt);
-                            else
-                                cOp_SIMD = costModel.getOpCost(op, Mode::SIMD, l_in);
-
-                            double cBoot = mustBoot ? costModel.getBootCost(vecCnt) : 0.0;
-
-                            // -- 3. Calculate SISD Cost --
-                            double cOp_SISD = costModel.getOpCost(op, Mode::SISD, vecCnt);
-
-                            // -- 4. Calculate Input Cast Costs --
-                            double cCastIn_SIMD = 0.0;
-                            double cCastIn_SISD = 0.0;
-                            SmallVector<std::string> castsSIMD_log, castsSISD_log;
-
-                            for (auto* p : preds[op]) {
-                                double c = costModel.getCastCost(info[p].mode, Mode::SIMD, info[p].vectorCount);
-                                cCastIn_SIMD += c;
-                                if (c > 0)
-                                    castsSIMD_log.push_back(getOpName(p) + "(SISD->SIMD=" + std::to_string(c) + ")");
-
-                                c = costModel.getCastCost(info[p].mode, Mode::SISD, info[p].vectorCount);
-                                cCastIn_SISD += c;
-                                if (c > 0)
-                                    castsSISD_log.push_back(getOpName(p) + "(SIMD->SISD=" + std::to_string(c) + ")");
-                            }
-
-                            double total_SIMD = cOp_SIMD + cBoot + cCastIn_SIMD;
-                            double total_SISD = cOp_SISD + cCastIn_SISD;
-
-                            // -- 5. Decision (Inertia Logic) --
                             Mode newMode = nd.mode;
-                            std::string reason;
-
-                            if (total_SISD < total_SIMD) {
+                            if (total_SISD < total_SIMD)
                                 newMode = Mode::SISD;
-                                reason = "SISD is cheaper (" + std::to_string(total_SISD) + " < " + std::to_string(total_SIMD) + ")";
-                            } else if (total_SIMD < total_SISD) {
+                            else if (total_SIMD < total_SISD)
                                 newMode = Mode::SIMD;
-                                reason = "SIMD is cheaper (" + std::to_string(total_SIMD) + " < " + std::to_string(total_SISD) + ")";
-                            } else {
-                                // Costs Equal: KEEP CURRENT (Inertia)
-                                // This is CRITICAL for 0-cost nodes like Encrypt to respect Phase 2's decision.
-                                newMode = nd.mode;
-                                reason = "Costs Equal (" + std::to_string(total_SIMD) + "), Keeping " + (nd.mode == Mode::SIMD ? "SIMD" : "SISD");
-                            }
+                            // else Inertia
 
-                            // -- Logging --
-                            LLVM_DEBUG({
-                                llvm::dbgs() << "    [TD] " << getOpName(op) << " (Level=" << l_in << ", Boot=" << mustBoot << ")\n";
-                                llvm::dbgs() << "      - SIMD Total: " << total_SIMD << " [Op:" << cOp_SIMD << " + Boot:" << cBoot << " + CastIn:" << cCastIn_SIMD << "]";
-                                if (!castsSIMD_log.empty()) {
-                                    llvm::dbgs() << " {";
-                                    for (auto& s : castsSIMD_log)
-                                        llvm::dbgs() << s << ", ";
-                                    llvm::dbgs() << "}";
-                                }
-                                llvm::dbgs() << "\n";
-
-                                llvm::dbgs() << "      - SISD Total: " << total_SISD << " [Op:" << cOp_SISD << " + CastIn:" << cCastIn_SISD << "]";
-                                if (!castsSISD_log.empty()) {
-                                    llvm::dbgs() << " {";
-                                    for (auto& s : castsSISD_log)
-                                        llvm::dbgs() << s << ", ";
-                                    llvm::dbgs() << "}";
-                                }
-                                llvm::dbgs() << "\n";
-
-                                llvm::dbgs() << "      -> Decided: " << (newMode == Mode::SIMD ? "SIMD" : "SISD") << " [" << reason << "]\n";
-                            });
-
-                            // -- Check for Change --
                             if (newMode != nd.mode) {
-                                LLVM_DEBUG(llvm::dbgs() << "    !!! [TD CHANGE] Mode flipped! Breaking to Phase 2. !!!\n");
+                                LLVM_DEBUG(llvm::dbgs() << "    [TD HIT] " << getOpName(op) << " -> " << (newMode == Mode::SIMD ? "SIMD" : "SISD") << "\n");
                                 nd.mode = newMode;
+                                updateNodeState(op);
                                 changed = true;
 
-                                // Update Level & Boot before breaking
-                                int opDepth = isa<simd::SIMDMultOp>(op) ? 1 : 0;
+                                // 【核心修复】：双向蔓延
                                 if (nd.mode == Mode::SIMD) {
-                                    nd.triggerBoot = mustBoot;
-                                    nd.finalLevel = (mustBoot ? BOOT_LEVEL : l_in) - opDepth;
-                                } else {
-                                    nd.triggerBoot = false;
-                                    nd.finalLevel = l_in;
+                                    propagateSIMDUp(op);
                                 }
-                                goto start_bottom_up;
-                            }
+                                // else {
+                                //     // 当 add 变 SISD 时，这就把 encrypt 也拉成 SISD
+                                //     propagateSISDUp(op);
+                                // }
 
-                            // Update Level/Boot even if mode didn't change
-                            int opDepth = isa<simd::SIMDMultOp>(op) ? 1 : 0;
-                            if (nd.mode == Mode::SIMD) {
-                                bool oldBoot = nd.triggerBoot;
-                                nd.triggerBoot = mustBoot;
-                                if (oldBoot != nd.triggerBoot) {
-                                    changed = true;
-                                    LLVM_DEBUG(llvm::dbgs() << "    !!! [TD CHANGE] Boot status flipped! Breaking to Phase 2. !!!\n");
-                                    nd.finalLevel = (nd.triggerBoot ? BOOT_LEVEL : l_in) - opDepth;
-                                    goto start_bottom_up;
-                                }
-                                nd.finalLevel = (nd.triggerBoot ? BOOT_LEVEL : l_in) - opDepth;
-                            } else {
-                                nd.triggerBoot = false;
-                                nd.finalLevel = l_in;
+                                goto start_bottom_up; // 立即跳出，进入下一阶段
                             }
+                            updateNodeState(op); // 即使模式没变，Level也可能因前驱变化而更新
                         }
 
                     start_bottom_up:;
 
-                        // ==========================================================
-                        // Phase 2: Bottom-Up (Find SISD -> SIMD Boundary)
-                        // ==========================================================
-                        LLVM_DEBUG(llvm::dbgs() << "  [Phase 2] Bottom-Up: Searching for SISD->SIMD boundary (Dynamic Look-Ahead)...\n");
-
+                        // === Phase 2: Bottom-Up (主要负责触发 SIMD 恢复/蔓延) ===
+                        LLVM_DEBUG(llvm::dbgs() << "  [Phase 2] Bottom-Up Scan\n");
                         for (auto it = topo.rbegin(); it != topo.rend(); ++it) {
                             Operation* op = *it;
                             auto& nd = info[op];
                             int64_t vecCnt = nd.vectorCount;
 
-                            // 1. Re-evaluate Self Cost
+                            // Recalc Self Cost
                             int l_in = MAX_SIMD_LEVEL;
                             for (auto* p : preds[op])
                                 l_in = std::min(l_in, info[p].finalLevel);
@@ -450,18 +510,12 @@ namespace mlir::libra::mdsel {
                                 cSelf_SIMD = costModel.getOpCost(op, Mode::SIMD, l_in);
                             if (mustBoot)
                                 cSelf_SIMD += costModel.getBootCost(vecCnt);
-
                             double cSelf_SISD = costModel.getOpCost(op, Mode::SISD, vecCnt);
 
-                            // 2. Look-Ahead Output Cast Cost
-                            double cOut_SIMD = 0.0;
-                            double cOut_SISD = 0.0;
-                            SmallVector<std::string> child_pref_log;
-
+                            // Look-Ahead Cost
+                            double cOut_SIMD = 0.0, cOut_SISD = 0.0;
                             for (auto* child : succs[op]) {
-                                // Dynamic Prediction: What does the child *really* want?
-
-                                // A. Estimate Child Cost as SIMD (using projected level)
+                                // Dynamic Prediction + Neutral Follow
                                 int child_l_in = level_if_simd;
                                 bool childBoot = (child_l_in <= SLIM_BOOT_TRIGGER);
                                 double costChild_SIMD = 0.0;
@@ -471,79 +525,52 @@ namespace mlir::libra::mdsel {
                                     costChild_SIMD = costModel.getOpCost(child, Mode::SIMD, child_l_in);
                                 if (childBoot)
                                     costChild_SIMD += costModel.getBootCost(info[child].vectorCount);
-
-                                // B. Estimate Child Cost as SISD
                                 double costChild_SISD = costModel.getOpCost(child, Mode::SISD, info[child].vectorCount);
 
-                                // C. Determine Preference
-                                Mode prefChildMode = info[child].mode; // Default to inertia
-                                std::string note = "Inertia";
-
-                                if (costChild_SIMD < costChild_SISD) {
-                                    prefChildMode = Mode::SIMD;
-                                    note = "SIMD(" + std::to_string(costChild_SIMD) + "<" + std::to_string(costChild_SISD) + ")";
-                                } else if (costChild_SISD < costChild_SIMD) {
-                                    prefChildMode = Mode::SISD;
-                                    note = "SISD(" + std::to_string(costChild_SISD) + "<" + std::to_string(costChild_SIMD) + ")";
+                                // Neutral Adaptation Logic
+                                if (costChild_SISD < costChild_SIMD) { // Child prefers SISD
+                                    cOut_SIMD += costModel.getCastCost(Mode::SIMD, Mode::SISD, vecCnt);
+                                    cOut_SISD += costModel.getCastCost(Mode::SISD, Mode::SISD, vecCnt);
+                                } else if (costChild_SIMD < costChild_SISD) { // Child prefers SIMD
+                                    cOut_SIMD += costModel.getCastCost(Mode::SIMD, Mode::SIMD, vecCnt);
+                                    cOut_SISD += costModel.getCastCost(Mode::SISD, Mode::SIMD, vecCnt);
+                                } else { // Neutral Child: Follows Parent
+                                    cOut_SIMD += costModel.getCastCost(Mode::SIMD, Mode::SIMD, vecCnt);
+                                    cOut_SISD += costModel.getCastCost(Mode::SISD, Mode::SISD, vecCnt);
                                 }
-
-                                // D. Calculate Cast Cost to that preference
-                                double cToPref = costModel.getCastCost(Mode::SIMD, prefChildMode, vecCnt);
-                                cOut_SIMD += cToPref;
-                                if (cToPref > 0)
-                                    child_pref_log.push_back(getOpName(child) + " wants " + note + ", Cast=" + std::to_string(cToPref));
-
-                                cToPref = costModel.getCastCost(Mode::SISD, prefChildMode, vecCnt);
-                                cOut_SISD += cToPref;
-                                if (cToPref > 0)
-                                    child_pref_log.push_back(getOpName(child) + " wants " + note + ", Cast=" + std::to_string(cToPref));
                             }
 
                             double total_SIMD = cSelf_SIMD + cOut_SIMD;
                             double total_SISD = cSelf_SISD + cOut_SISD;
 
-                            // 3. Decision
                             Mode newMode = nd.mode;
-                            if (total_SIMD < total_SISD) {
+                            if (total_SIMD < total_SISD)
                                 newMode = Mode::SIMD;
-                            } else if (total_SISD < total_SIMD) {
+                            else if (total_SISD < total_SIMD)
                                 newMode = Mode::SISD;
-                            } else {
-                                // Bottom-Up Inertia
-                                newMode = nd.mode;
-                            }
+                            // else Inertia
 
                             if (newMode != nd.mode) {
-                                LLVM_DEBUG({
-                                    llvm::dbgs() << "    [BU] " << getOpName(op) << "\n";
-                                    llvm::dbgs() << "      - As SIMD: " << total_SIMD << " (Self:" << cSelf_SIMD << " + OutCast:" << cOut_SIMD << ")\n";
-                                    llvm::dbgs() << "      - As SISD: " << total_SISD << " (Self:" << cSelf_SISD << " + OutCast:" << cOut_SISD << ")\n";
-                                    if (!child_pref_log.empty()) {
-                                        llvm::dbgs() << "      - Child Prefs: {";
-                                        for (auto& s : child_pref_log)
-                                            llvm::dbgs() << s << "; ";
-                                        llvm::dbgs() << "}\n";
-                                    }
-                                    llvm::dbgs() << "    !!! [BU CHANGE] Correcting to " << (newMode == Mode::SIMD ? "SIMD" : "SISD") << ". Breaking. !!!\n";
-                                });
-
+                                LLVM_DEBUG(llvm::dbgs() << "    [BU HIT] " << getOpName(op) << " -> " << (newMode == Mode::SIMD ? "SIMD" : "SISD") << "\n");
                                 nd.mode = newMode;
+                                updateNodeState(op);
                                 changed = true;
 
+                                // 核心修改：触发蔓延
                                 if (nd.mode == Mode::SIMD) {
-                                    nd.triggerBoot = mustBoot;
-                                    nd.finalLevel = (mustBoot ? BOOT_LEVEL : l_in) - opDepth;
+                                    propagateSIMDUp(op);
                                 } else {
-                                    nd.triggerBoot = false;
-                                    nd.finalLevel = l_in;
+                                    // [新增] 必须加上这一段！
+                                    // 当 add 变 SISD 时，强制把 encrypt 也拉成 SISD
+                                    propagateSISDUp(op);
                                 }
-                                break;
+
+                                break; // 跳出，开始下一轮
                             }
                         }
-                    } // End While
+                    }
 
                     // 4. Rewrite IR
-                    LLVM_DEBUG(llvm::dbgs() << "\n[Rewrite] Starting IR Materialization...\n");
                     IRRewriter rewriter(module.getContext());
                     llvm::DenseMap<Value, Value> rewriteMap;
 
@@ -615,7 +642,6 @@ namespace mlir::libra::mdsel {
                             }
                         }
 
-                        // Create Operation
                         Operation* newOp = nullptr;
                         int64_t vecCnt = nd.vectorCount;
                         Type resTy;
@@ -635,10 +661,6 @@ namespace mlir::libra::mdsel {
                             resTy = simd::SIMDCipherType::get(op->getContext(), resultLevel, vecCnt, rewriter.getI64Type());
                         }
 
-                        // Op Instantiation...
-                        // (这里为了节省篇幅，省略了重复的 Op 创建代码，逻辑与之前完全一致。
-                        //  请保留你原有代码中创建 Add/Sub/Mult/Encrypt 等算子的部分)
-                        // ... Begin Op Creation ...
                         if (isa<simd::SIMDDecryptOp, sisd::SISDDecryptOp>(op)) {
                             if (isa<sisd::SISDCipherType>(newOps[0].getType()))
                                 newOp = rewriter.create<sisd::SISDDecryptOp>(op->getLoc(), op->getResultTypes(), newOps);
@@ -688,19 +710,15 @@ namespace mlir::libra::mdsel {
                                 rewriter.create<simd::SIMDStoreOp>(op->getLoc(), newOps[0], newOps[1]);
                             continue;
                         }
-                        // ... End Op Creation ...
 
-                        if (newOp) {
+                        if (newOp)
                             rewriteMap[op->getResult(0)] = newOp->getResult(0);
-                        }
                     }
 
-                    // 5. Cleanup
-                    LLVM_DEBUG(llvm::dbgs() << "\n[Cleanup] Performing Safe Deletions...\n");
                     for (Operation* op : topo) {
-                        if (op->use_empty()) {
+                        if (op->use_empty())
                             rewriter.eraseOp(op);
-                        } else {
+                        else {
                             for (int i = 0; i < op->getNumResults(); ++i) {
                                 Value oldVal = op->getResult(i);
                                 if (rewriteMap.count(oldVal)) {
@@ -719,7 +737,6 @@ namespace mlir::libra::mdsel {
                         }
                     }
 
-                    // 6. Fix Loop Signatures
                     auto peelCast = [](Value v) -> Value {
                         if (auto castOp = v.getDefiningOp<sisd::SISDCastSISDCipherToSIMDCipherOp>())
                             return castOp.getOperand();
@@ -776,7 +793,6 @@ namespace mlir::libra::mdsel {
                         r.eraseOp(forOp);
                     }
 
-                    // 7. Config Attachment
                     LLVM_DEBUG(llvm::dbgs() << "\n[Post-Processing] Attaching Global FlyHE Config...\n");
                     bool hasSIMD = false, hasSISD = false, hasBoot = false;
                     int64_t maxCount = 1;
@@ -804,6 +820,12 @@ namespace mlir::libra::mdsel {
                             if (auto st = dyn_cast<simd::SIMDCipherType>(op->getResult(0).getType()))
                                 initLevel = std::max<int32_t>(initLevel, st.getLevel());
                         }
+                    });
+
+                    module.walk([&](func::FuncOp f) {
+                        for (auto t : f.getArgumentTypes())
+                            if (auto st = dyn_cast<simd::SIMDCipherType>(t))
+                                initLevel = std::max<int32_t>(initLevel, st.getLevel());
                     });
 
                     std::string modeStr = (hasSIMD && hasSISD) ? "CROSS" : (hasSISD ? "SISD" : "SIMD");
