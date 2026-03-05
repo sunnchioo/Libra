@@ -83,10 +83,10 @@ the steps below.
 
 ### 1. Build Polygeist
 
-This project uses `Security_Artifact/Libra` as the root directory.
+This project uses `Libra` as the root directory.
 
 ```bash
-cd Security_Artifact/Libra/Tool/Polygeist
+cd Libra/Tool/Polygeist
 mkdir build
 cd build
 cmake -G Ninja ../llvm-project/llvm \
@@ -103,7 +103,7 @@ ninja check-polygeist-opt && ninja check-cgeist
 ### 2. Build LLVM, MLIR, and Clang
 
 ```bash
-cd Security_Artifact/Libra/Tool/llvm-project
+cd Libra/Tool/llvm-project
 mkdir build
 cd build
 cmake -G Ninja ../llvm \
@@ -118,7 +118,7 @@ ninja check-mlir
 ### 3. Build the Libra Compiler
 
 ```bash
-cd Security_Artifact/Libra
+cd Libra
 mkdir build
 cd build
 cmake -G Ninja ..
@@ -127,7 +127,7 @@ ninja
 
 ## Usage
 
-The scripts in `Security_Artifact/Libra/Script` can convert a C program into the target
+The scripts in `Libra/Script` can convert a C program into the target
 FHE CUDA C++ code through three stages: **frontend (C → MLIR)**, **middle-end (MLIR opt)**, and
 **backend (MLIR → CUDA C++)**.
 
@@ -137,19 +137,19 @@ Here are the steps to run the scripts and generate the FHE CUDA C++ code.
 
 (1) Run the Libra frontend script.
 ```bash
-cd Security_Artifact/Libra
+cd Libra
 ./Script/libra-mlir.sh <input.c> <output.mlir>
 ```
 
 (2) Run the Libra middle-end script.
 ```bash
-cd Security_Artifact/Libra
+cd Libra
 ./Script/libra-opt.sh <input.mlir> <output.opt.mlir>
 ```
 
 (3) Run the Libra backend script.
 ```bash
-cd Security_Artifact/Libra
+cd Libra
 ./Script/libra-translate.sh <input.opt.mlir> <output.cu>
 ```
 
@@ -161,7 +161,7 @@ The generated CUDA C++ code is compiled together with the foundational FHE libra
 to produce executables.
 
 ```bash
-cd Security_Artifact/Libra/HElib/FlyHE
+cd Libra/HElib/FlyHE
 mkdir build
 cd build
 cmake ..
