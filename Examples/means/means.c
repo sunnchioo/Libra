@@ -26,7 +26,7 @@ int average_array(double* avg, double* vec, size_t size) {
 
 int main() {
 
-    size_t count = 10;
+    size_t count = 1 << 4;
     double* data = malloc(count * sizeof(double));
 
     random_real(data, count);

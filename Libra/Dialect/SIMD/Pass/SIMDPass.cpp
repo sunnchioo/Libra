@@ -84,17 +84,71 @@ namespace mlir::libra::simd {
                 auto lhs = peelCast(adaptor.getOperands()[0]);
                 auto rhs = peelCast(adaptor.getOperands()[1]);
 
-                // 这里的推断逻辑保持不变，但输入类型已经是 SIMD 类型了
+                // === 辅助 lambda：自动加密 ===
+                auto ensureCipher = [&](Value val, Value other) -> Value {
+                    if (isa<FloatType>(val.getType()) || isa<IntegerType>(val.getType())) {
+                        int64_t targetLevel = 0;
+                        if (auto otherTy = dyn_cast<SIMDCipherType>(other.getType())) {
+                            targetLevel = otherTy.getLevel();
+                        }
+                        Type elemType = val.getType();
+                        if (auto castTy = dyn_cast<SIMDCipherType>(other.getType()))
+                            elemType = castTy.getElementType();
+
+                        auto constCipherTy = SIMDCipherType::get(ctx, targetLevel, 1, elemType);
+                        LLVM_DEBUG(llvm::dbgs() << "  -> Auto-encrypting plaintext operand to: " << constCipherTy << "\n");
+                        return rewriter.create<SIMDEncryptOp>(op.getLoc(), constCipherTy, val).getResult();
+                    }
+                    return val;
+                };
+
+                // === [修改点 1]：有条件地处理 RHS ===
+                // LHS 总是尝试转为密文 (Cipher / Plain 是合法的，但 Plain / Cipher 通常需提升)
+                lhs = ensureCipher(lhs, rhs);
+
+                // 检查是否为 Div 且 RHS 为明文
+                bool isDivOptimized = std::is_same_v<TargetOp, SIMDDivOp> &&
+                                      (isa<FloatType>(rhs.getType()) || isa<IntegerType>(rhs.getType()));
+
+                // 如果不是 Div 优化场景，才强制加密 RHS
+                if (!isDivOptimized) {
+                    rhs = ensureCipher(rhs, lhs);
+                } else {
+                    LLVM_DEBUG(llvm::dbgs() << "  -> Optimization: Keeping SIMDDivOp divisor as plaintext.\n");
+                }
+
+                // === [修改点 2]：类型检查与结果推导 ===
                 auto ta = dyn_cast<SIMDCipherType>(lhs.getType());
-                auto tb = dyn_cast<SIMDCipherType>(rhs.getType());
-                if (!ta || !tb)
+                auto tb = dyn_cast<SIMDCipherType>(rhs.getType()); // tb 可能为空(如果是明文)
+
+                // 1. LHS 必须是密文
+                if (!ta) {
+                    LLVM_DEBUG(llvm::dbgs() << "  -> Failed: LHS is not a cipher.\n");
                     return failure();
+                }
 
-                int64_t newLevel = std::min(ta.getLevel(), tb.getLevel());
+                // 2. 如果不是优化场景，RHS 也必须是密文
+                if (!tb && !isDivOptimized) {
+                    LLVM_DEBUG(llvm::dbgs() << "  -> Failed: RHS is not a cipher and not optimized Div.\n");
+                    return failure();
+                }
+
+                // 3. 计算 Level 和 Count
+                int64_t currentLevel = ta.getLevel();
+                int64_t currentCount = ta.getPlaintextCount();
+
+                // 如果 RHS 也是密文，取两者的最小值/对齐值
+                if (tb) {
+                    currentLevel = std::min(ta.getLevel(), tb.getLevel());
+                    currentCount = std::min(ta.getPlaintextCount(), tb.getPlaintextCount());
+                }
+
+                // 4. 应用 Level 消耗规则 (Mult/Div 消耗一层)
+                int64_t newLevel = currentLevel;
                 if (std::is_same_v<SourceOp, scfhe::SCFHEMultOp> || std::is_same_v<SourceOp, scfhe::SCFHEDivOp>)
-                    newLevel = std::max<int64_t>(0, newLevel - 1);
+                    newLevel = std::max<int64_t>(0, currentLevel - 1);
 
-                auto resTy = SIMDCipherType::get(ctx, newLevel, std::min(ta.getPlaintextCount(), tb.getPlaintextCount()), ta.getElementType());
+                auto resTy = SIMDCipherType::get(ctx, newLevel, currentCount, ta.getElementType());
 
                 rewriter.replaceOpWithNewOp<TargetOp>(op, resTy, lhs, rhs);
                 return success();

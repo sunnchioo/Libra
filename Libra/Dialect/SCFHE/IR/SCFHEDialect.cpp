@@ -133,41 +133,58 @@ struct RefineBinaryOpShape : public OpRewritePattern<BinaryOp> {
         Value newLhs = peelCast(lhs);
         Value newRhs = peelCast(rhs);
 
-        // 4. 类型检查
-        auto newLhsType = llvm::cast<SCFHECipherType>(newLhs.getType());
-        auto newRhsType = llvm::cast<SCFHECipherType>(newRhs.getType());
+        // 4. 类型检查 (使用 dyn_cast 进行安全检查)
+        // 【关键修复】：这里必须用 dyn_cast，因为 newRhs 可能是 f64 (明文)
+        auto newLhsType = llvm::dyn_cast<SCFHECipherType>(newLhs.getType());
+        auto newRhsType = llvm::dyn_cast<SCFHECipherType>(newRhs.getType());
 
-        bool inputsAreStatic = newLhsType.hasStaticShape() && newRhsType.hasStaticShape();
-        bool shapesMatch = newLhsType == newRhsType;
+        // LHS 必须是密文，否则无法推导形状
+        if (!newLhsType) {
+            return failure();
+        }
 
-        if (!inputsAreStatic || !shapesMatch) {
-            return failure(); // 输入条件不满足，直接退出
+        // 确定新的结果类型 (newResultType)
+        SCFHECipherType newResultType;
+
+        if (newRhsType) {
+            // === Case A: 两个都是密文 (Add, Sub, Mult, 或 Div密文) ===
+            // 要求两者都是静态形状且形状匹配
+            bool inputsAreStatic = newLhsType.hasStaticShape() && newRhsType.hasStaticShape();
+            bool shapesMatch = newLhsType == newRhsType;
+
+            if (!inputsAreStatic || !shapesMatch) {
+                return failure();
+            }
+            newResultType = newLhsType;
+        } else {
+            // === Case B: RHS 是明文 (例如 Div f64) ===
+            // 这种情况下，形状完全由 LHS 决定
+            // 我们只需要确保 LHS 是静态形状即可进行优化
+            if (!newLhsType.hasStaticShape()) {
+                return failure();
+            }
+            newResultType = newLhsType;
         }
 
         // =======================================================
-        // 【关键修复】防死循环检查 (Guard Clause)
+        // 5. 防死循环检查 (Guard Clause)
         // =======================================================
 
-        // 检查 A: 如果结果已经是静态的，并且等于输入的形状，说明可能已经优化过了
+        // 检查 A: 结果形状是否已经是最优的静态形状
         bool resultIsAlreadyStatic = currentResultType.hasStaticShape() &&
-                                     (currentResultType == newLhsType);
+                                     (currentResultType == newResultType);
 
-        // 检查 B: 我们的剥离操作有没有改变任何东西？
-        // 如果 peelCast 返回的还是原值 (lhs == newLhs)，说明没有 Cast 可以剥离
+        // 检查 B: 输入操作数是否发生了变化 (是否成功剥离了 Cast)
         bool inputsDidNotChange = (lhs == newLhs) && (rhs == newRhs);
 
-        // 结论: 如果结果已经是静态的，且输入也没变，说明我们无事可做，必须退出！
+        // 结论: 如果结果已经是理想形状，且输入没有变得更好，则无需重写
         if (resultIsAlreadyStatic && inputsDidNotChange) {
-            // 这行打印证明我们成功阻止了死循环
-            // llvm::errs() << "[DEBUG-Add/Sub] Skip: Already optimized.\n";
             return failure();
         }
 
         // =======================================================
-        // 执行重写
+        // 6. 执行重写
         // =======================================================
-
-        auto newResultType = newLhsType; // 使用静态类型 <10>
 
         llvm::errs() << "[DEBUG-Binary] Optimizing BinaryOp shape to "
                      << newResultType.getPlaintextCount() << "\n";
@@ -277,25 +294,37 @@ void SCFHEDecryptOp::getCanonicalizationPatterns(RewritePatternSet& results, MLI
 }
 
 // =============================================================================
-// 4. Shape Inference Implementation (保持不变)
+// 4. Shape Inference Implementation
 // =============================================================================
 
 static LogicalResult inferBinaryCipherShape(MLIRContext* context, Value lhs, Value rhs, SmallVectorImpl<Type>& inferredReturnTypes) {
     auto lhsType = llvm::dyn_cast<SCFHECipherType>(lhs.getType());
     auto rhsType = llvm::dyn_cast<SCFHECipherType>(rhs.getType());
 
-    if (!lhsType || !rhsType)
+    // 【修改点 1】LHS 必须是密文
+    if (!lhsType)
         return failure();
 
-    int64_t count = lhsType.getPlaintextCount();
-    Type elemType = lhsType.getElementType();
-
-    if (lhsType.isDynamic() && !rhsType.isDynamic()) {
-        count = rhsType.getPlaintextCount();
-    } else if (!lhsType.isDynamic() && !rhsType.isDynamic()) {
-        count = lhsType.getPlaintextCount();
+    // 【修改点 2】RHS 可以是密文，也可以是浮点/整数标量 (针对 Div 优化)
+    if (!rhsType && !llvm::isa<FloatType, IntegerType>(rhs.getType())) {
+        return failure(); // RHS 既不是密文也不是支持的标量
     }
 
+    // 确定结果的 Plaintext Count
+    int64_t count = lhsType.getPlaintextCount();
+
+    // 如果 RHS 也是密文，则需要处理动态形状传播逻辑
+    if (rhsType) {
+        if (lhsType.isDynamic() && !rhsType.isDynamic()) {
+            count = rhsType.getPlaintextCount();
+        } else if (!lhsType.isDynamic() && !rhsType.isDynamic()) {
+            // 两个都是静态，通常取较大的（虽然一般应该相等）
+            count = std::max(lhsType.getPlaintextCount(), rhsType.getPlaintextCount());
+        }
+    }
+    // 如果 RHS 是明文，结果形状完全跟随 LHS，无需改变 count
+
+    Type elemType = lhsType.getElementType();
     auto resultType = SCFHECipherType::get(context, count, elemType);
     inferredReturnTypes.push_back(resultType);
     return success();

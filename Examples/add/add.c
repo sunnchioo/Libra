@@ -21,7 +21,7 @@ int add(double* res, double* a, double* b, size_t size) {
 }
 
 int main() {
-    size_t count = 10;
+    size_t count = 1 << 8;
 
     double* x = malloc(count * sizeof(double));
     double* y = malloc(count * sizeof(double));

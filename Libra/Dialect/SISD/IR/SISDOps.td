@@ -78,6 +78,26 @@ def SISDMultPlainOp : SISD_Op<"mult_plain", [Pure]> {
     let assemblyFormat = "$cipher `,` $plain attr-dict `:` type($cipher) `,` type($plain) `->` type($result)";
 }
 
+// TFHE is not natively supported, but is reserved.
+def SISDMultOp : SISD_Op<"mult", [Pure]> {
+    let summary = "Ciphertext * Ciphertext multiplication (Warning: High cost in TFHE).";
+    let arguments = (ins AnyType:$lhs, AnyType:$rhs);
+    let results = (outs AnyType:$result);
+    let assemblyFormat = "$lhs `,` $rhs attr-dict `:` type($lhs) `,` type($rhs) `->` type($result)";
+}
+
+// TFHE is not natively supported, but is reserved.
+def SISDDivOp : SISD_Op<"div", [Pure]> {
+    let summary = "Ciphertext / Ciphertext division.";
+    let description = [{
+        Integer division between two encrypted values.
+        Note: This is a very expensive operation in FHE.
+    }];
+    let arguments = (ins AnyType:$lhs, AnyType:$rhs);
+    let results = (outs AnyType:$result);
+    let assemblyFormat = "$lhs `,` $rhs attr-dict `:` type($lhs) `,` type($rhs) `->` type($result)";
+}
+
 // ============================================================================
 // Group 3: Non-Linear & Bootstrapping Operations
 // ============================================================================
@@ -89,7 +109,7 @@ def SISDfbsOp : SISD_Op<"fbs", [Pure]> {
         by encoding the function's truth table into the `fbs` attribute.
         It inherently reduces the noise of the ciphertext (Bootstrapping).
     }];
-    let arguments = (ins AnyType:$operand, DenseElementsAttr:$fbs);
+    let arguments = (ins AnyType:$operand, ElementsAttr:$fbs);
     let results = (outs AnyType:$result);
     let assemblyFormat = "$operand `,` $fbs attr-dict `:` type($operand) `->` type($result)";
 }
@@ -137,6 +157,7 @@ def SISDCastSISDCipherToSIMDCipherOp : SISD_Op<"cast_to_simd", [Pure]> {
     let arguments = (ins AnyType:$input);
     let results = (outs AnyType:$result);
     let assemblyFormat = "$input attr-dict `:` type($input) `->` type($result)";
+    
     let hasCanonicalizer = 1;
 }
 

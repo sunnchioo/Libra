@@ -29,29 +29,29 @@ module {
     return %c0_i32 : i32
   }
   func.func @main() -> i32 {
-    %c10_i64 = arith.constant 10 : i64
     %c0_i32 = arith.constant 0 : i32
-    %c10_i32 = arith.constant 10 : i32
-    %alloc = memref.alloc() : memref<10xf64>
-    %cast = memref.cast %alloc : memref<10xf64> to memref<?xf64>
-    %alloc_0 = memref.alloc() : memref<10xf64>
-    %cast_1 = memref.cast %alloc_0 : memref<10xf64> to memref<?xf64>
-    %alloc_2 = memref.alloc() : memref<10xf64>
-    %cast_3 = memref.cast %alloc_2 : memref<10xf64> to memref<?xf64>
-    call @random_real(%cast, %c10_i32) : (memref<?xf64>, i32) -> ()
-    call @random_real(%cast_1, %c10_i32) : (memref<?xf64>, i32) -> ()
-    %0 = call @add(%cast_3, %cast, %cast_1, %c10_i64) : (memref<?xf64>, memref<?xf64>, memref<?xf64>, i64) -> i32
+    %c256_i64 = arith.constant 256 : i64
+    %c256_i32 = arith.constant 256 : i32
+    %alloc = memref.alloc() : memref<256xf64>
+    %cast = memref.cast %alloc : memref<256xf64> to memref<?xf64>
+    %alloc_0 = memref.alloc() : memref<256xf64>
+    %cast_1 = memref.cast %alloc_0 : memref<256xf64> to memref<?xf64>
+    %alloc_2 = memref.alloc() : memref<256xf64>
+    %cast_3 = memref.cast %alloc_2 : memref<256xf64> to memref<?xf64>
+    call @random_real(%cast, %c256_i32) : (memref<?xf64>, i32) -> ()
+    call @random_real(%cast_1, %c256_i32) : (memref<?xf64>, i32) -> ()
+    %0 = call @add(%cast_3, %cast, %cast_1, %c256_i64) : (memref<?xf64>, memref<?xf64>, memref<?xf64>, i64) -> i32
     %1 = llvm.mlir.addressof @str0 : !llvm.ptr
     %2 = llvm.getelementptr %1[0, 0] : (!llvm.ptr) -> !llvm.ptr, !llvm.array<14 x i8>
-    affine.for %arg0 = 0 to 10 {
-      %3 = affine.load %alloc[%arg0] : memref<10xf64>
-      %4 = affine.load %alloc_0[%arg0] : memref<10xf64>
-      %5 = affine.load %alloc_2[%arg0] : memref<10xf64>
+    affine.for %arg0 = 0 to 256 {
+      %3 = affine.load %alloc[%arg0] : memref<256xf64>
+      %4 = affine.load %alloc_0[%arg0] : memref<256xf64>
+      %5 = affine.load %alloc_2[%arg0] : memref<256xf64>
       %6 = llvm.call @printf(%2, %3, %4, %5) vararg(!llvm.func<i32 (ptr, ...)>) : (!llvm.ptr, f64, f64, f64) -> i32
     }
-    memref.dealloc %alloc : memref<10xf64>
-    memref.dealloc %alloc_0 : memref<10xf64>
-    memref.dealloc %alloc_2 : memref<10xf64>
+    memref.dealloc %alloc : memref<256xf64>
+    memref.dealloc %alloc_0 : memref<256xf64>
+    memref.dealloc %alloc_2 : memref<256xf64>
     return %c0_i32 : i32
   }
 }

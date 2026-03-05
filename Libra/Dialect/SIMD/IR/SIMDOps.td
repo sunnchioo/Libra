@@ -12,299 +12,159 @@ class SIMD_Op<string mnemonic, list<Trait> traits = []> : Op<SIMD_Dialect, mnemo
     let summary = "SIMD dialect operations base class";
 }
 
-def SIMDAddOp : SIMD_Op<"add", [Pure]> {
-    let summary = "Define an add operation.";
-    let arguments = (ins AnyType:$input0, AnyType:$input1);
-    let results = (outs AnyType:$res);
-    // 允许不同类型
-    let assemblyFormat = [{
-        $input0 `+` $input1 attr-dict `:` type($input0) `,` type($input1) `->` type($res)
-    }];
-}
+// ============================================================================
+// Group 1: Cryptographic I/O & Memory Management
+// ============================================================================
 
-def SIMDSubOp : SIMD_Op<"sub", [Pure]> {
-    let summary = "Define a sub operation.";
-    let arguments = (ins AnyType:$input0, AnyType:$input1);
-    let results = (outs AnyType:$res);
-    // 允许不同类型
-    let assemblyFormat = [{
-        $input0 `_` $input1 attr-dict `:` type($input0) `,` type($input1) `->` type($res)
-    }];
-}
-
-def SIMDMultOp : SIMD_Op<"mult", [Pure]> {
-    let summary = "Define a multiply operation.";
-    let description = [{
-        Define a multiply operation between two SIMD cipher values.
-    }];
-
-    let arguments = (ins 
-        AnyType:$input0,
-        AnyType:$input1);
-    let results = (outs AnyType:$result);
-
-    let assemblyFormat = [{
-        $input0 `*` $input1 attr-dict `:` type($input0) `,` type($input1) `->` type($result)
-    }];
-}
-
-def SIMDMinOp : SIMD_Op<"min", [Pure]> {
-  let summary = "Finds the minimum value in a ciphertext vector, returning a scalar ciphertext.";
-  
-  let arguments = (ins AnyType:$operand);
-  let results = (outs AnyType:$result);
-
-  let assemblyFormat = "$operand attr-dict `:` type($operand) `->` type($result)";
-}
-
-def SIMDCastSIMDCipherToSISDCipherOp : SIMD_Op<"cast_to_sisd", [Pure]> {
-  let summary = "Cast a !simd.simdcipher<NxMxT> to a !sisd.sisdcipher<MxT> by dropping the leading SIMD dimension";
-
-  let description = [{
-    This operation performs a logical reinterpretation between SIMD and SISD dialect
-    ciphertext representations, allowing the removal of one or more leading shape dimensions
-    while preserving the underlying element type.
-
-    Example:
-      %12 = simd.cast_to_sisd %11 :
-        !simd.simdcipher<12 x 8 x i64> -> !sisd.sisdcipher<8 x i64>
-  }];
-
-  let arguments = (ins AnyType:$input);
-  let results = (outs AnyType:$result);
-
-  // Assembly matches the given example format exactly
-  let assemblyFormat = "$input attr-dict `:` type($input) `->` type($result)";
-
-  let hasCanonicalizer = 1;
-}
-
-def SIMDBootOp : SIMD_Op<"boot", [Pure]> {
-    let summary = "Performs FHE bootstrapping to refresh the noise budget to a specific level.";
-    
-    let description = [{
-        This operation takes a ciphertext and returns a new ciphertext with a refreshed 
-        noise budget (level).
-        
-        Unlike traditional bootstrapping which might always restore to the maximum level,
-        this operation's output level is determined by the compiler (e.g., via dynamic 
-        programming) to meet the minimum level requirements of downstream consumers 
-        while minimizing total latency.
-
-        Example:
-          // Bootstrapping to Level 15 because downstream only needs Level 15
-          %new = simd.boot %old : !simd.simdcipher<0 x 8 x i64> -> !simd.simdcipher<15 x 8 x i64>
-    }];
-
+def SIMDEncryptOp : SIMD_Op<"encrypt", [Pure]> {
+    let summary = "Encrypt a plaintext vector into a SIMD cipher.";
     let arguments = (ins AnyType:$input);
-    let results = (outs AnyType:$result);
-
-    let assemblyFormat = [{
-        $input attr-dict `:` type($input) `->` type($result)
-    }];
+    let results = (outs AnyType:$cipher);
+    let assemblyFormat = "$input attr-dict `:` type($input) `->` type($cipher)";
 }
 
-def SIMDRescaleOp : SIMD_Op<"rescale", [Pure]> {
-  let summary = "Rescale a ciphertext, consuming one level to reduce the scaling factor.";
-  let description = [{
-    Operation that divides the ciphertext message by the last modulus in the RNS chain.
-    This is used to reduce the 'Scale' from Delta^2 (Dirty) back to Delta (Clean).
-    
-    Side Effect: Reduces the level by 1.
-    Input: !simd.simdcipher<L x Dirty x T>
-    Output: !simd.simdcipher<L-1 x Clean x T>
-  }];
-
-  let arguments = (ins AnyType:$input);
-  let results = (outs AnyType:$result);
-
-  let assemblyFormat = "$input attr-dict `:` type($input) `->` type($result)";
+def SIMDDecryptOp : SIMD_Op<"decrypt", [Pure]> {
+    let summary = "Decrypt a SIMD ciphertext back into a plaintext vector.";
+    let arguments = (ins AnyType:$cipher);
+    let results = (outs AnyType:$output);
+    let assemblyFormat = "$cipher attr-dict `:` type($cipher) `->` type($output)";
 }
-
-def SIMDRelinOp : SIMD_Op<"relinearize", [Pure]> {
-  let summary = "Relinearize a ciphertext to reduce its size (basis).";
-  let description = [{
-    Reduces the number of polynomials in the ciphertext (e.g., from 3 to 2) after multiplication.
-    This operation is expensive but necessary to prevent ciphertext expansion.
-    
-    Input: !simd.simdcipher<L x S x Extended>
-    Output: !simd.simdcipher<L x S x Standard>
-  }];
-
-  let arguments = (ins AnyType:$input);
-  let results = (outs AnyType:$result);
-
-  let assemblyFormat = "$input attr-dict `:` type($input) `->` type($result)";
-}
-
-def SIMDModSwitchOp : SIMD_Op<"mod_switch", [Pure]> {
-  let summary = "Explicitly drop levels without rescaling.";
-  let description = [{
-    Drops the modulus chain to a lower level without changing the scale.
-    Used for aligning levels between two operands of an Add/Sub operation.
-    Cost is usually negligible.
-  }];
-
-  let arguments = (ins AnyType:$input);
-  let results = (outs AnyType:$result);
-
-  let assemblyFormat = "$input attr-dict `:` type($input) `->` type($result)";
-}
-
-// def SIMDLoadOp : SIMD_Op<"load"> {
-//     let summary = "Load a SIMD cipher value";
-//     let arguments = (ins AnyType:$src);
-//     let results = (outs AnyType:$result);
-//     let assemblyFormat = [{
-//         $src `:` type($src) attr-dict `:` type($result)
-//     }];
-// }
 
 def SIMDLoadOp : SIMD_Op<"load", [Pure]> {
-    let summary = "Extract a scalar cipher from a SIMD cipher array at a specific index";
+    let summary = "Extract a scalar from a SIMD array at a specific index.";
     let arguments = (ins AnyType:$array, Index:$index);
     let results = (outs AnyType:$result);
     let assemblyFormat = "$array `[` $index `]` attr-dict `:` type($array) `->` type($result)";
 }
 
 def SIMDStoreOp : SIMD_Op<"store"> {
-    let summary = "Store a SIMD cipher value into a SIMD slot (or memref placeholder)";
-    let description = [{
-        Stores a value of type `!flyhe.cipher` into a destination which may be
-        a memref (before type conversion) or a !flyhe.cipher (after).
-    }];
-
-    let arguments = (ins 
-        AnyType:$value,
-        AnyType:$dest);
-
-    let assemblyFormat = "$value `,` $dest `:` type($value) `,` type($dest) attr-dict";
+    let summary = "Store a SIMD cipher value into a destination.";
+    let arguments = (ins AnyType:$value, AnyType:$dest);
+    let assemblyFormat = "$value `,` $dest attr-dict `:` type($value) `,` type($dest)";
 }
 
-// def SIMDStoreOp : SIMD_Op<"store"> {
-//     let summary = "Store a SIMD cipher value.";
-    
-//     // 添加 Variadic<Index>:$indices 以支持带索引的存储
-//     let arguments = (ins 
-//         AnyType:$value,
-//         AnyType:$dest,
-//         Variadic<Index>:$indices); 
+// ============================================================================
+// Group 2: Linear & Non-Linear Arithmetic
+// ============================================================================
 
-//     // 修改 assemblyFormat 以支持索引列表 [idx1, idx2]
-//     let assemblyFormat = [{
-//         $value `,` $dest (`[` $indices^ `]`)? attr-dict `:` type($value) `,` type($dest)
-//     }];
-// }
-
-def VectorOfFloatTypeConstraint : Type<
-  CPred<"llvm::isa<::mlir::VectorType>($_self) && "
-        "llvm::isa<::mlir::FloatType>(llvm::cast<::mlir::VectorType>($_self).getElementType())">,
-  "vector of float type">;
-
-def SIMDEncryptOp : SIMD_Op<"encrypt", [Pure]> {
-    let summary = "Encrypt a plaintext floating-point value into a SIMD cipher.";
-    let description = [{
-        Takes a plaintext value (e.g., f64) and produces an encrypted ciphertext
-        of type !simd.cipher. This operation models encoding or encryption
-        under homomorphic encryption context.
-    }];
-
-    let arguments = (ins AnyType:$input);
-
-    let results = (outs AnyType:$cipher);
-
-    let assemblyFormat = [{
-        $input attr-dict `:` type($input) `->` type($cipher)
-    }];
-}
-
-def SIMDDecryptOp : SIMD_Op<"decrypt", [Pure]> {
-    let summary = "Decrypt a SIMD ciphertext back into a plaintext value or vector.";
-    let description = [{
-        Converts an encrypted !simd.cipher value back into a plaintext float or vector,
-        simulating the decryption stage of FHE computation.
-
-        This operation can produce either a scalar float (e.g. f64)
-        or a vector of floats (e.g. vector<8xf64>), depending on the context.
-        It is typically inserted before vector.transfer_write to convert
-        ciphertext vectors back into plaintext data.
-    }];
-
-    let arguments = (ins AnyType:$cipher);
-
-    let results = (outs AnyType:$output);
-
-    let assemblyFormat = [{
-        $cipher attr-dict `:` type($cipher) `:` type($output)
-    }];
-}
-
-def SIMDAllocaOp : SIMD_Op<"alloca"> {
-  let summary = "Allocate encrypted memory for a single SIMD cipher";
-  let description = [{
-    Allocate a 0-D memref whose element type must be the SIMD cipher type.
-    Example assembly:
-      %c = simd.alloca : memref<!simd.sisdcipher>
-  }];
-
-  // The op has no operands and one result (an AnyType so parser can accept memref types).
-  let arguments = (ins);
-  let results = (outs AnyType:$result);
-
-  // Allow parser to print the result type
-  let assemblyFormat = "`:` type($result) attr-dict";
-}
-
-def SIMDPrintOp : SIMD_Op<"print", [Pure]> {
-    let summary = "Print one or more SIMD ciphertexts (for debug or output).";
-    let description = [{
-        This operation takes one or more values of type `!simd.cipher`
-        and conceptually prints their decrypted plaintext representation.
-        It has no result and is considered a side-effecting debug op (though
-        technically marked NoSideEffect for testing convenience).
-    }];
-
-    let arguments = (ins Variadic<SIMD_SIMDCipherType>:$inputs);
-
-    let results = (outs);
-
-    let assemblyFormat = [{
-        $inputs attr-dict `:` type($inputs)
-    }];
-}
-
-// === 补充缺失的算术/逻辑操作 ===
-def SIMDDivOp : SIMD_Op<"div", [Pure]> {
-    let summary = "Define a division operation.";
-    let description = [{
-        Define a division operation between two SIMD cipher values.
-        Consumes levels (noise budget).
-    }];
-
-    let arguments = (ins 
-        AnyType:$lhs,
-        AnyType:$rhs);
+// 密文-密文加法 (Add levels if mismatched)
+def SIMDAddOp : SIMD_Op<"add", [Pure]> {
+    let summary = "Ciphertext-Ciphertext SIMD addition.";
+    let arguments = (ins AnyType:$lhs, AnyType:$rhs);
     let results = (outs AnyType:$res);
-
-    let assemblyFormat = [{
-        $lhs `,` $rhs attr-dict `:` type($lhs) `,` type($rhs) `->` type($res)
-    }];
+    let assemblyFormat = "$lhs `,` $rhs attr-dict `:` type($lhs) `,` type($rhs) `->` type($res)";
 }
+
+def SIMDAddPlainOp : SIMD_Op<"add_plain", [Pure]> {
+    let summary = "Ciphertext-Plaintext SIMD addition.";
+    let arguments = (ins AnyType:$cipher, AnyType:$plain);
+    let results = (outs AnyType:$res);
+    let assemblyFormat = "$cipher `,` $plain attr-dict `:` type($cipher) `,` type($plain) `->` type($res)";
+}
+
+def SIMDSubOp : SIMD_Op<"sub", [Pure]> {
+    let summary = "Ciphertext-Ciphertext SIMD subtraction.";
+    let arguments = (ins AnyType:$lhs, AnyType:$rhs);
+    let results = (outs AnyType:$res);
+    let assemblyFormat = "$lhs `,` $rhs attr-dict `:` type($lhs) `,` type($rhs) `->` type($res)";
+}
+
+def SIMDSublainOp : SIMD_Op<"sub_plain", [Pure]> {
+    let summary = "Ciphertext-Plaintext SIMD subtraction.";
+    let arguments = (ins AnyType:$cipher, AnyType:$plain);
+    let results = (outs AnyType:$res);
+    let assemblyFormat = "$cipher `,` $plain attr-dict `:` type($cipher) `,` type($plain) `->` type($res)";
+}
+
+// 密文-密文乘法 (产生 dirty scale，需要后续 Relin + Rescale)
+def SIMDMultOp : SIMD_Op<"mult", [Pure]> {
+    let summary = "Ciphertext-Ciphertext SIMD multiplication.";
+    let arguments = (ins AnyType:$lhs, AnyType:$rhs);
+    let results = (outs AnyType:$res);
+    let assemblyFormat = "$lhs `,` $rhs attr-dict `:` type($lhs) `,` type($rhs) `->` type($res)";
+}
+
+// 密文-明文乘法 (比密文乘法快得多，不需要 Relinearize)
+def SIMDMultPlainOp : SIMD_Op<"mult_plain", [Pure]> {
+    let summary = "Ciphertext-Plaintext SIMD multiplication.";
+    let arguments = (ins AnyType:$cipher, AnyType:$plain);
+    let results = (outs AnyType:$res);
+    let assemblyFormat = "$cipher `,` $plain attr-dict `:` type($cipher) `,` type($plain) `->` type($res)";
+}
+
+// ============================================================================
+// Group 3: SIMD Specific Operations (Rotations)
+// ============================================================================
+
+def SIMDRotateOp : SIMD_Op<"rotate", [Pure]> {
+    let summary = "Cyclically rotate the slots of a SIMD ciphertext.";
+    let description = [{
+        Moves elements across slots. Does not consume levels, 
+        but is computationally expensive due to key-switching.
+    }];
+    let arguments = (ins AnyType:$input, I64Attr:$offset);
+    let results = (outs AnyType:$res);
+    let assemblyFormat = "$input `,` $offset attr-dict `:` type($input) `->` type($res)";
+}
+
+def SIMDReduceAddOp : SIMD_Op<"reduce_add", [Pure]> {
+    let summary = "Sum all slots within one ciphertext (using log2(N) rotations).";
+    let arguments = (ins AnyType:$input);
+    let results = (outs AnyType:$res);
+    let assemblyFormat = "$input attr-dict `:` type($input) `->` type($res)";
+}
+
+// ============================================================================
+// Group 4: CKKS Management (Crucial for Level/Scale Tracking)
+// ============================================================================
+
+def SIMDRelinOp : SIMD_Op<"relinearize", [Pure]> {
+    let summary = "Reduce ciphertext size from 3 to 2 polynomials after mult.";
+    let arguments = (ins AnyType:$input);
+    let results = (outs AnyType:$res);
+    let assemblyFormat = "$input attr-dict `:` type($input) `->` type($res)";
+}
+
+def SIMDRescaleOp : SIMD_Op<"rescale", [Pure]> {
+    let summary = "Divide by modulus to manage scale and consume one level.";
+    let arguments = (ins AnyType:$input);
+    let results = (outs AnyType:$res);
+    let assemblyFormat = "$input attr-dict `:` type($input) `->` type($res)";
+}
+
+def SIMDModSwitchOp : SIMD_Op<"mod_switch", [Pure]> {
+    let summary = "Drop a level without rescaling (for level alignment).";
+    let arguments = (ins AnyType:$input);
+    let results = (outs AnyType:$res);
+    let assemblyFormat = "$input attr-dict `:` type($input) `->` type($res)";
+}
+
+def SIMDBootOp : SIMD_Op<"boot", [Pure]> {
+    let summary = "CKKS Bootstrapping to refresh levels.";
+    let arguments = (ins AnyType:$input);
+    let results = (outs AnyType:$res);
+    let assemblyFormat = "$input attr-dict `:` type($input) `->` type($res)";
+}
+
+// ============================================================================
+// Group 5: Polynomial Approximation (Non-linear Function Approximation)
+// ============================================================================
+// Note: These ops are NOT native to CKKS. They will be lowered into a DAG 
+// of additions and multiplications representing a polynomial (e.g., Chebyshev).
 
 def SIMDSelectOp : SIMD_Op<"select", [Pure]> {
-    let summary = "Select operation based on an encrypted condition (mask).";
+    let summary = "SIMD Homomorphic select (mux) operation";
     let description = [{
-        Return input1 if condition is true (1), else input2.
-        Condition must be a ciphertext acting as a mask (usually 0 or 1).
-    }];
-
-    let arguments = (ins 
-        AnyType:$condition,
-        AnyType:$true_value,
-        AnyType:$false_value);
+        Selects values between true_value and false_value based on the condition bit.
+        Result = condition ? true_value : false_value.
         
+        The condition is typically a ciphertext resulting from a comparison (0 or 1).
+    }];
+    // 根据错误信息推断，它接受三个操作数：条件, 真值, 假值
+    let arguments = (ins AnyType:$condition, AnyType:$true_value, AnyType:$false_value);
     let results = (outs AnyType:$result);
-
+    
+    // 定义汇编格式
     let assemblyFormat = [{
         $condition `,` $true_value `,` $false_value attr-dict 
         `:` type($condition) `,` type($true_value) `,` type($false_value) `->` type($result)
@@ -312,48 +172,107 @@ def SIMDSelectOp : SIMD_Op<"select", [Pure]> {
 }
 
 def SIMDCmpOp : SIMD_Op<"cmp", [Pure]> {
-    let summary = "Compare two ciphertexts.";
+    let summary = "Compare two ciphertexts using polynomial approximation.";
     let description = [{
-        Compares two ciphertexts based on a predicate (e.g. OLT, OEQ).
-        Returns a ciphertext representing the boolean result (mask).
-        
-        The predicate is stored as a 64-bit integer attribute (matching arith.cmpf).
+        Approximates the signum function. 
+        'degree' represents the polynomial degree. If -1, the compiler 
+        chooses a degree based on the current noise budget/precision heuristic.
     }];
 
     let arguments = (ins 
-        AnyType:$lhs,
-        AnyType:$rhs,
-        I64Attr:$predicate); // Predicate value (e.g., from arith::CmpFPredicate)
+        AnyType:$lhs, 
+        AnyType:$rhs, 
+        I64Attr:$predicate,
+        DefaultValuedAttr<I64Attr, "-1">:$degree
+    ); 
 
     let results = (outs AnyType:$result);
-
-    let assemblyFormat = [{
-        $lhs `,` $rhs attr-dict `:` type($lhs) `,` type($rhs) `->` type($result)
-    }];
+    let assemblyFormat = "$lhs `,` $rhs attr-dict `:` type($lhs) `,` type($rhs) `->` type($result)";
 }
 
-def SIMDReduceAddOp : SIMD_Op<"reduce_add", [Pure]> {
-    let summary = "Sum all elements in a SIMD vector cipher to a scalar cipher.";
-    
-    let arguments = (ins AnyType:$input);
+def SIMDMinOp : SIMD_Op<"min", [Pure]> {
+    let summary = "Find the minimum of two ciphertexts.";
+    let arguments = (ins 
+        AnyType:$lhs, 
+        AnyType:$rhs,
+        DefaultValuedAttr<I64Attr, "-1">:$degree
+    );
     let results = (outs AnyType:$result);
+    let assemblyFormat = "$lhs `,` $rhs attr-dict `:` type($lhs) `,` type($rhs) `->` type($result)";
+}
 
-    let assemblyFormat = "$input attr-dict `:` type($input) `->` type($result)";
+def SIMDMaxOp : SIMD_Op<"max", [Pure]> {
+    let summary = "Find the maximum of two ciphertexts.";
+    let arguments = (ins 
+        AnyType:$lhs, 
+        AnyType:$rhs,
+        DefaultValuedAttr<I64Attr, "-1">:$degree
+    );
+    let results = (outs AnyType:$result);
+    let assemblyFormat = "$lhs `,` $rhs attr-dict `:` type($lhs) `,` type($rhs) `->` type($result)";
 }
 
 def SIMDExpOp : SIMD_Op<"exp", [Pure]> {
-    let summary = "Calculate exponential of a ciphertext.";
+    let summary = "Calculate exponential (e^x) of a ciphertext.";
+    let arguments = (ins 
+        AnyType:$input,
+        DefaultValuedAttr<I64Attr, "-1">:$degree
+    );
+    let results = (outs AnyType:$result);
+    let assemblyFormat = "$input attr-dict `:` type($input) `->` type($result)";
+}
+
+def SIMDInvOp : SIMD_Op<"inv", [Pure]> {
+    let summary = "Calculate the reciprocal (1/x) of a ciphertext.";
     let description = [{
-        Calculates the exponential (e^x) of the input ciphertext.
-        Depending on the backend, this might be lowered to a polynomial approximation 
-        (e.g., Taylor series) or a programmable bootstrap lookup.
+        Approximates the inverse of the input. 
+        In CKKS, this is typically implemented using:
+        1. Newton-Raphson iterations: x_{n+1} = x_n * (2 - input * x_n)
+        2. Or a direct Chebyshev polynomial over a specific range [a, b].
+        
+        'degree' here can represent the number of iterations or the polynomial degree.
     }];
 
-    let arguments = (ins AnyType:$input);
+    let arguments = (ins 
+        AnyType:$input,
+        DefaultValuedAttr<I64Attr, "-1">:$degree
+    );
     let results = (outs AnyType:$result);
 
     let assemblyFormat = "$input attr-dict `:` type($input) `->` type($result)";
 }
 
+def SIMDDivOp : SIMD_Op<"div", [Pure]> {
+    let summary = "Divide two ciphertexts (lhs / rhs).";
+    let description = [{
+        Approximates division. Most backends will lower this to:
+        %inv_rhs = simd.inv %rhs
+        %res = simd.mult %lhs, %inv_rhs
+        
+        'degree' controls the precision of the underlying reciprocal approximation.
+    }];
 
-#endif  // SIMDOPS_TD_
+    let arguments = (ins 
+        AnyType:$lhs, 
+        AnyType:$rhs,
+        DefaultValuedAttr<I64Attr, "-1">:$degree
+    );
+    let results = (outs AnyType:$result);
+
+    let assemblyFormat = "$lhs `,` $rhs attr-dict `:` type($lhs) `,` type($rhs) `->` type($result)";
+}
+
+// ============================================================================
+// Group 6: Cipher Conversion
+// ============================================================================
+
+def SIMDCastSIMDCipherToSISDCipherOp : SIMD_Op<"cast_to_sisd", [Pure]> {
+    let summary = "Cast SIMD ciphertext to SISD (drop batch dimension).";
+    let arguments = (ins AnyType:$input);
+    let results = (outs AnyType:$result);
+    let assemblyFormat = "$input attr-dict `:` type($input) `->` type($result)";
+
+    let hasCanonicalizer = 1;
+}
+
+#endif // SIMDOPS_TD_

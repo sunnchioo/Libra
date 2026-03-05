@@ -35,25 +35,25 @@ module {
     return %c0_i32 : i32
   }
   func.func @main() -> i32 {
-    %c10_i64 = arith.constant 10 : i64
     %c0_i32 = arith.constant 0 : i32
-    %c10_i32 = arith.constant 10 : i32
+    %c16_i64 = arith.constant 16 : i64
+    %c16_i32 = arith.constant 16 : i32
     %alloca = memref.alloca() : memref<1xf64>
     %0 = llvm.mlir.undef : f64
     affine.store %0, %alloca[0] : memref<1xf64>
-    %alloc = memref.alloc() : memref<10xf64>
-    %cast = memref.cast %alloc : memref<10xf64> to memref<?xf64>
-    call @random_real(%cast, %c10_i32) : (memref<?xf64>, i32) -> ()
+    %alloc = memref.alloc() : memref<16xf64>
+    %cast = memref.cast %alloc : memref<16xf64> to memref<?xf64>
+    call @random_real(%cast, %c16_i32) : (memref<?xf64>, i32) -> ()
     %cast_0 = memref.cast %alloca : memref<1xf64> to memref<?xf64>
-    %1 = call @average_array(%cast_0, %cast, %c10_i64) : (memref<?xf64>, memref<?xf64>, i64) -> i32
+    %1 = call @average_array(%cast_0, %cast, %c16_i64) : (memref<?xf64>, memref<?xf64>, i64) -> i32
     %2 = llvm.mlir.addressof @str0 : !llvm.ptr
     %3 = llvm.getelementptr %2[0, 0] : (!llvm.ptr) -> !llvm.ptr, !llvm.array<14 x i8>
     %4 = llvm.call @printf(%3) vararg(!llvm.func<i32 (ptr, ...)>) : (!llvm.ptr) -> i32
     %5 = llvm.mlir.addressof @str1 : !llvm.ptr
     %6 = llvm.getelementptr %5[0, 0] : (!llvm.ptr) -> !llvm.ptr, !llvm.array<20 x i8>
-    affine.for %arg0 = 0 to 10 {
+    affine.for %arg0 = 0 to 16 {
       %14 = arith.index_cast %arg0 : index to i64
-      %15 = affine.load %alloc[%arg0] : memref<10xf64>
+      %15 = affine.load %alloc[%arg0] : memref<16xf64>
       %16 = llvm.call @printf(%6, %14, %15) vararg(!llvm.func<i32 (ptr, ...)>) : (!llvm.ptr, i64, f64) -> i32
     }
     %7 = llvm.mlir.addressof @str2 : !llvm.ptr
@@ -63,7 +63,7 @@ module {
     %11 = llvm.getelementptr %10[0, 0] : (!llvm.ptr) -> !llvm.ptr, !llvm.array<15 x i8>
     %12 = affine.load %alloca[0] : memref<1xf64>
     %13 = llvm.call @printf(%11, %12) vararg(!llvm.func<i32 (ptr, ...)>) : (!llvm.ptr, f64) -> i32
-    memref.dealloc %alloc : memref<10xf64>
+    memref.dealloc %alloc : memref<16xf64>
     return %c0_i32 : i32
   }
 }

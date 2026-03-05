@@ -36,25 +36,25 @@ module {
     return %c0_i32 : i32
   }
   func.func @main() -> i32 {
-    %c10_i64 = arith.constant 10 : i64
     %c0_i32 = arith.constant 0 : i32
-    %c10_i32 = arith.constant 10 : i32
+    %c16_i64 = arith.constant 16 : i64
+    %c16_i32 = arith.constant 16 : i32
     %alloca = memref.alloca() : memref<1xf64>
     %0 = llvm.mlir.undef : f64
     affine.store %0, %alloca[0] : memref<1xf64>
-    %alloc = memref.alloc() : memref<10xf64>
-    %cast = memref.cast %alloc : memref<10xf64> to memref<?xf64>
-    call @random_real(%cast, %c10_i32) : (memref<?xf64>, i32) -> ()
+    %alloc = memref.alloc() : memref<16xf64>
+    %cast = memref.cast %alloc : memref<16xf64> to memref<?xf64>
+    call @random_real(%cast, %c16_i32) : (memref<?xf64>, i32) -> ()
     %cast_0 = memref.cast %alloca : memref<1xf64> to memref<?xf64>
-    %1 = call @average_array(%cast_0, %cast, %c10_i64) : (memref<?xf64>, memref<?xf64>, i64) -> i32
+    %1 = call @average_array(%cast_0, %cast, %c16_i64) : (memref<?xf64>, memref<?xf64>, i64) -> i32
     %2 = llvm.mlir.addressof @str0 : !llvm.ptr
     %3 = llvm.getelementptr %2[0, 0] : (!llvm.ptr) -> !llvm.ptr, !llvm.array<14 x i8>
     %4 = llvm.call @printf(%3) vararg(!llvm.func<i32 (ptr, ...)>) : (!llvm.ptr) -> i32
     %5 = llvm.mlir.addressof @str1 : !llvm.ptr
     %6 = llvm.getelementptr %5[0, 0] : (!llvm.ptr) -> !llvm.ptr, !llvm.array<20 x i8>
-    affine.for %arg0 = 0 to 10 {
+    affine.for %arg0 = 0 to 16 {
       %14 = arith.index_cast %arg0 : index to i64
-      %15 = affine.load %alloc[%arg0] : memref<10xf64>
+      %15 = affine.load %alloc[%arg0] : memref<16xf64>
       %16 = llvm.call @printf(%6, %14, %15) vararg(!llvm.func<i32 (ptr, ...)>) : (!llvm.ptr, i64, f64) -> i32
     }
     %7 = llvm.mlir.addressof @str2 : !llvm.ptr
@@ -64,7 +64,7 @@ module {
     %11 = llvm.getelementptr %10[0, 0] : (!llvm.ptr) -> !llvm.ptr, !llvm.array<15 x i8>
     %12 = affine.load %alloca[0] : memref<1xf64>
     %13 = llvm.call @printf(%11, %12) vararg(!llvm.func<i32 (ptr, ...)>) : (!llvm.ptr, f64) -> i32
-    memref.dealloc %alloc : memref<10xf64>
+    memref.dealloc %alloc : memref<16xf64>
     return %c0_i32 : i32
   }
 }
@@ -95,21 +95,20 @@ Analyzing Function: @average_array
 [AffineForToSCFForPattern] Conversion complete.
 
 [AffineLoadToSCFHELoadPattern] Inspecting affine.load at loc("means.mlir":28:12)
-  -> Array Cipher Type: !scfhe.scfhecipher<? x i64>
-  -> Target Result Type: !scfhe.scfhecipher<1 x i64>
-  -> [Success] Replaced affine.load with scfhe.load.
+  -> [Scalar Mode] Normal indexing. Creating scfhe.load for single element: !scfhe.scfhecipher<1 x i64>
 
 [BinaryOpRewritePattern] Trying to convert arith.addf at loc("means.mlir":29:12)
-  -> LHS Type: !scfhe.scfhecipher<1 x i64> (Cipher: 1)
-  -> RHS Type: !scfhe.scfhecipher<1 x i64> (Cipher: 1)
-  -> [Success] Conditions met (Mixed Operations Supported!). Converted to SCFHE Binary Op.
+  -> LHS Type: !scfhe.scfhecipher<1 x i64>
+  -> RHS Type: !scfhe.scfhecipher<1 x i64>
+  -> [Success] Converting to SCFHE Binary Op with Result Type: !scfhe.scfhecipher<1 x i64>
 
 [AffineYieldToSCFYieldPattern] Converting yield...
 
 [BinaryOpRewritePattern] Trying to convert arith.divf at loc("means.mlir":33:10)
-  -> LHS Type: !scfhe.scfhecipher<1 x i64> (Cipher: 1)
-  -> RHS Type: !scfhe.scfhecipher<1 x i64> (Cipher: 1)
-  -> [Success] Conditions met (Mixed Operations Supported!). Converted to SCFHE Binary Op.
+  -> [Optimization] Div op detected. Using ORIGINAL plaintext operand directly (bypassing conversion).
+  -> LHS Type: !scfhe.scfhecipher<1 x i64>
+  -> RHS Type: f64
+  -> [Success] Converting to SCFHE Binary Op with Result Type: !scfhe.scfhecipher<1 x i64>
 
 [StoreToReturnPattern] Inspecting AffineStoreOp...
   -> Value to store Type: !scfhe.scfhecipher<1 x i64>
@@ -117,15 +116,29 @@ Analyzing Function: @average_array
   -> [Success] Replacing store with func.return containing Cipher.
 [TypeConverter] TargetMaterialization: Wrapping with Cast to -> !scfhe.scfhecipher<1 x i64>
   -> Auto-encrypting plaintext to cipher.
-[TypeConverter] TargetMaterialization: Wrapping with Cast to -> !scfhe.scfhecipher<1 x i64>
-  -> Auto-encrypting plaintext to cipher.
 --- Phase 3 Conversion Succeeded ---
 
 --- Executing Phase 4: Official Inliner ---
-[DEBUG-Encrypt] Optimizing Encrypt shape to 10 (with Cast wrapper).
+[DEBUG-Encrypt] Optimizing Encrypt shape to 16 (with Cast wrapper).
 
 --- Executing Phase 5: Cleanup & Shape Inference ---
 [Cleanup] Melting away UnrealizedConversionCastOp before decrypt.
+  -> [Cleanup] Fully unrolling scf.for with trip count: 16
+[Cleanup] Melting away SCFHECastOp before load.
+[Cleanup] Melting away SCFHECastOp before load.
+[Cleanup] Melting away SCFHECastOp before load.
+[Cleanup] Melting away SCFHECastOp before load.
+[Cleanup] Melting away SCFHECastOp before load.
+[Cleanup] Melting away SCFHECastOp before load.
+[Cleanup] Melting away SCFHECastOp before load.
+[Cleanup] Melting away SCFHECastOp before load.
+[Cleanup] Melting away SCFHECastOp before load.
+[Cleanup] Melting away SCFHECastOp before load.
+[Cleanup] Melting away SCFHECastOp before load.
+[Cleanup] Melting away SCFHECastOp before load.
+[Cleanup] Melting away SCFHECastOp before load.
+[Cleanup] Melting away SCFHECastOp before load.
+[Cleanup] Melting away SCFHECastOp before load.
 [Cleanup] Melting away SCFHECastOp before load.
 ====== SCFHE Pass Finished ======
 // -----// IR Dump After ConvertToSCFHEPass (convert-to-scfhe) //----- //
@@ -152,10 +165,23 @@ module {
   }
   func.func private @rand() -> i32
   func.func @main() -> i32 {
-    %cst = arith.constant 1.000000e+01 : f64
+    %c15 = arith.constant 15 : index
+    %c14 = arith.constant 14 : index
+    %c13 = arith.constant 13 : index
+    %c12 = arith.constant 12 : index
+    %c11 = arith.constant 11 : index
     %c10 = arith.constant 10 : index
-    %c0 = arith.constant 0 : index
+    %c9 = arith.constant 9 : index
+    %c8 = arith.constant 8 : index
+    %c7 = arith.constant 7 : index
+    %c6 = arith.constant 6 : index
+    %c5 = arith.constant 5 : index
+    %c4 = arith.constant 4 : index
+    %c3 = arith.constant 3 : index
+    %c2 = arith.constant 2 : index
     %c1 = arith.constant 1 : index
+    %c0 = arith.constant 0 : index
+    %cst = arith.constant 1.600000e+01 : f64
     %cst_0 = arith.constant 0.000000e+00 : f64
     %cst_1 = arith.constant 0x41DFFFFFFFC00000 : f64
     %cst_2 = arith.constant 1.000000e+02 : f64
@@ -167,40 +193,66 @@ module {
     %c0_i32 = arith.constant 0 : i32
     %alloca = memref.alloca() : memref<1xf64>
     affine.store %4, %alloca[0] : memref<1xf64>
-    %alloc = memref.alloc() : memref<10xf64>
-    affine.for %arg0 = 0 to 10 {
-      %19 = func.call @rand() : () -> i32
-      %20 = arith.sitofp %19 : i32 to f64
-      %21 = arith.divf %20, %cst_1 : f64
-      %22 = arith.mulf %21, %cst_2 : f64
-      %23 = arith.addf %22, %cst_0 : f64
-      affine.store %23, %alloc[%arg0] : memref<10xf64>
+    %alloc = memref.alloc() : memref<16xf64>
+    affine.for %arg0 = 0 to 16 {
+      %49 = func.call @rand() : () -> i32
+      %50 = arith.sitofp %49 : i32 to f64
+      %51 = arith.divf %50, %cst_1 : f64
+      %52 = arith.mulf %51, %cst_2 : f64
+      %53 = arith.addf %52, %cst_0 : f64
+      affine.store %53, %alloc[%arg0] : memref<16xf64>
     }
-    %5 = scfhe.encrypt %alloc : memref<10xf64> -> !scfhe.scfhecipher<10 x i64>
+    %5 = scfhe.encrypt %alloc : memref<16xf64> -> !scfhe.scfhecipher<16 x i64>
     %6 = scfhe.encrypt %cst_0 : f64 -> !scfhe.scfhecipher<1 x i64>
-    %7 = scf.for %arg0 = %c0 to %c10 step %c1 iter_args(%arg1 = %6) -> (!scfhe.scfhecipher<1 x i64>) {
-      %19 = scfhe.load %5[%arg0] : <10 x i64> -> <1 x i64>
-      %20 = scfhe.add %arg1 + %19 : !scfhe.scfhecipher<1 x i64>, !scfhe.scfhecipher<1 x i64>
-      scf.yield %20 : !scfhe.scfhecipher<1 x i64>
+    %7 = scfhe.load %5[%c0] : <16 x i64> -> <1 x i64>
+    %8 = scfhe.add %6 + %7 : !scfhe.scfhecipher<1 x i64>, !scfhe.scfhecipher<1 x i64>
+    %9 = scfhe.load %5[%c1] : <16 x i64> -> <1 x i64>
+    %10 = scfhe.add %8 + %9 : !scfhe.scfhecipher<1 x i64>, !scfhe.scfhecipher<1 x i64>
+    %11 = scfhe.load %5[%c2] : <16 x i64> -> <1 x i64>
+    %12 = scfhe.add %10 + %11 : !scfhe.scfhecipher<1 x i64>, !scfhe.scfhecipher<1 x i64>
+    %13 = scfhe.load %5[%c3] : <16 x i64> -> <1 x i64>
+    %14 = scfhe.add %12 + %13 : !scfhe.scfhecipher<1 x i64>, !scfhe.scfhecipher<1 x i64>
+    %15 = scfhe.load %5[%c4] : <16 x i64> -> <1 x i64>
+    %16 = scfhe.add %14 + %15 : !scfhe.scfhecipher<1 x i64>, !scfhe.scfhecipher<1 x i64>
+    %17 = scfhe.load %5[%c5] : <16 x i64> -> <1 x i64>
+    %18 = scfhe.add %16 + %17 : !scfhe.scfhecipher<1 x i64>, !scfhe.scfhecipher<1 x i64>
+    %19 = scfhe.load %5[%c6] : <16 x i64> -> <1 x i64>
+    %20 = scfhe.add %18 + %19 : !scfhe.scfhecipher<1 x i64>, !scfhe.scfhecipher<1 x i64>
+    %21 = scfhe.load %5[%c7] : <16 x i64> -> <1 x i64>
+    %22 = scfhe.add %20 + %21 : !scfhe.scfhecipher<1 x i64>, !scfhe.scfhecipher<1 x i64>
+    %23 = scfhe.load %5[%c8] : <16 x i64> -> <1 x i64>
+    %24 = scfhe.add %22 + %23 : !scfhe.scfhecipher<1 x i64>, !scfhe.scfhecipher<1 x i64>
+    %25 = scfhe.load %5[%c9] : <16 x i64> -> <1 x i64>
+    %26 = scfhe.add %24 + %25 : !scfhe.scfhecipher<1 x i64>, !scfhe.scfhecipher<1 x i64>
+    %27 = scfhe.load %5[%c10] : <16 x i64> -> <1 x i64>
+    %28 = scfhe.add %26 + %27 : !scfhe.scfhecipher<1 x i64>, !scfhe.scfhecipher<1 x i64>
+    %29 = scfhe.load %5[%c11] : <16 x i64> -> <1 x i64>
+    %30 = scfhe.add %28 + %29 : !scfhe.scfhecipher<1 x i64>, !scfhe.scfhecipher<1 x i64>
+    %31 = scfhe.load %5[%c12] : <16 x i64> -> <1 x i64>
+    %32 = scfhe.add %30 + %31 : !scfhe.scfhecipher<1 x i64>, !scfhe.scfhecipher<1 x i64>
+    %33 = scfhe.load %5[%c13] : <16 x i64> -> <1 x i64>
+    %34 = scfhe.add %32 + %33 : !scfhe.scfhecipher<1 x i64>, !scfhe.scfhecipher<1 x i64>
+    %35 = scfhe.load %5[%c14] : <16 x i64> -> <1 x i64>
+    %36 = scfhe.add %34 + %35 : !scfhe.scfhecipher<1 x i64>, !scfhe.scfhecipher<1 x i64>
+    %37 = scfhe.load %5[%c15] : <16 x i64> -> <1 x i64>
+    %38 = scfhe.add %36 + %37 : !scfhe.scfhecipher<1 x i64>, !scfhe.scfhecipher<1 x i64>
+    %39 = scfhe.div %38, %cst : !scfhe.scfhecipher<1 x i64>, f64
+    %40 = scfhe.decrypt %39 : !scfhe.scfhecipher<1 x i64> : memref<1xf64>
+    memref.copy %40, %alloca : memref<1xf64> to memref<1xf64>
+    %41 = llvm.getelementptr %3[0, 0] : (!llvm.ptr) -> !llvm.ptr, !llvm.array<14 x i8>
+    %42 = llvm.call @printf(%41) vararg(!llvm.func<i32 (ptr, ...)>) : (!llvm.ptr) -> i32
+    %43 = llvm.getelementptr %2[0, 0] : (!llvm.ptr) -> !llvm.ptr, !llvm.array<20 x i8>
+    affine.for %arg0 = 0 to 16 {
+      %49 = arith.index_cast %arg0 : index to i64
+      %50 = affine.load %alloc[%arg0] : memref<16xf64>
+      %51 = llvm.call @printf(%43, %49, %50) vararg(!llvm.func<i32 (ptr, ...)>) : (!llvm.ptr, i64, f64) -> i32
     }
-    %8 = scfhe.encrypt %cst : f64 -> !scfhe.scfhecipher<1 x i64>
-    %9 = scfhe.div %7, %8 : !scfhe.scfhecipher<1 x i64>, !scfhe.scfhecipher<1 x i64>
-    %10 = scfhe.decrypt %9 : !scfhe.scfhecipher<1 x i64> : memref<1xf64>
-    memref.copy %10, %alloca : memref<1xf64> to memref<1xf64>
-    %11 = llvm.getelementptr %3[0, 0] : (!llvm.ptr) -> !llvm.ptr, !llvm.array<14 x i8>
-    %12 = llvm.call @printf(%11) vararg(!llvm.func<i32 (ptr, ...)>) : (!llvm.ptr) -> i32
-    %13 = llvm.getelementptr %2[0, 0] : (!llvm.ptr) -> !llvm.ptr, !llvm.array<20 x i8>
-    affine.for %arg0 = 0 to 10 {
-      %19 = arith.index_cast %arg0 : index to i64
-      %20 = affine.load %alloc[%arg0] : memref<10xf64>
-      %21 = llvm.call @printf(%13, %19, %20) vararg(!llvm.func<i32 (ptr, ...)>) : (!llvm.ptr, i64, f64) -> i32
-    }
-    %14 = llvm.getelementptr %1[0, 0] : (!llvm.ptr) -> !llvm.ptr, !llvm.array<17 x i8>
-    %15 = llvm.call @printf(%14) vararg(!llvm.func<i32 (ptr, ...)>) : (!llvm.ptr) -> i32
-    %16 = llvm.getelementptr %0[0, 0] : (!llvm.ptr) -> !llvm.ptr, !llvm.array<15 x i8>
-    %17 = affine.load %alloca[0] : memref<1xf64>
-    %18 = llvm.call @printf(%16, %17) vararg(!llvm.func<i32 (ptr, ...)>) : (!llvm.ptr, f64) -> i32
-    memref.dealloc %alloc : memref<10xf64>
+    %44 = llvm.getelementptr %1[0, 0] : (!llvm.ptr) -> !llvm.ptr, !llvm.array<17 x i8>
+    %45 = llvm.call @printf(%44) vararg(!llvm.func<i32 (ptr, ...)>) : (!llvm.ptr) -> i32
+    %46 = llvm.getelementptr %0[0, 0] : (!llvm.ptr) -> !llvm.ptr, !llvm.array<15 x i8>
+    %47 = affine.load %alloca[0] : memref<1xf64>
+    %48 = llvm.call @printf(%46, %47) vararg(!llvm.func<i32 (ptr, ...)>) : (!llvm.ptr, f64) -> i32
+    memref.dealloc %alloc : memref<16xf64>
     return %c0_i32 : i32
   }
 }
@@ -230,10 +282,23 @@ module {
   }
   func.func private @rand() -> i32
   func.func @main() -> i32 {
-    %cst = arith.constant 1.000000e+01 : f64
+    %c15 = arith.constant 15 : index
+    %c14 = arith.constant 14 : index
+    %c13 = arith.constant 13 : index
+    %c12 = arith.constant 12 : index
+    %c11 = arith.constant 11 : index
     %c10 = arith.constant 10 : index
-    %c0 = arith.constant 0 : index
+    %c9 = arith.constant 9 : index
+    %c8 = arith.constant 8 : index
+    %c7 = arith.constant 7 : index
+    %c6 = arith.constant 6 : index
+    %c5 = arith.constant 5 : index
+    %c4 = arith.constant 4 : index
+    %c3 = arith.constant 3 : index
+    %c2 = arith.constant 2 : index
     %c1 = arith.constant 1 : index
+    %c0 = arith.constant 0 : index
+    %cst = arith.constant 1.600000e+01 : f64
     %cst_0 = arith.constant 0.000000e+00 : f64
     %cst_1 = arith.constant 0x41DFFFFFFFC00000 : f64
     %cst_2 = arith.constant 1.000000e+02 : f64
@@ -245,40 +310,66 @@ module {
     %c0_i32 = arith.constant 0 : i32
     %alloca = memref.alloca() : memref<1xf64>
     affine.store %4, %alloca[0] : memref<1xf64>
-    %alloc = memref.alloc() : memref<10xf64>
-    affine.for %arg0 = 0 to 10 {
-      %19 = func.call @rand() : () -> i32
-      %20 = arith.sitofp %19 : i32 to f64
-      %21 = arith.divf %20, %cst_1 : f64
-      %22 = arith.mulf %21, %cst_2 : f64
-      %23 = arith.addf %22, %cst_0 : f64
-      affine.store %23, %alloc[%arg0] : memref<10xf64>
+    %alloc = memref.alloc() : memref<16xf64>
+    affine.for %arg0 = 0 to 16 {
+      %49 = func.call @rand() : () -> i32
+      %50 = arith.sitofp %49 : i32 to f64
+      %51 = arith.divf %50, %cst_1 : f64
+      %52 = arith.mulf %51, %cst_2 : f64
+      %53 = arith.addf %52, %cst_0 : f64
+      affine.store %53, %alloc[%arg0] : memref<16xf64>
     }
-    %5 = scfhe.encrypt %alloc : memref<10xf64> -> !scfhe.scfhecipher<10 x i64>
+    %5 = scfhe.encrypt %alloc : memref<16xf64> -> !scfhe.scfhecipher<16 x i64>
     %6 = scfhe.encrypt %cst_0 : f64 -> !scfhe.scfhecipher<1 x i64>
-    %7 = scf.for %arg0 = %c0 to %c10 step %c1 iter_args(%arg1 = %6) -> (!scfhe.scfhecipher<1 x i64>) {
-      %19 = scfhe.load %5[%arg0] : <10 x i64> -> <1 x i64>
-      %20 = scfhe.add %arg1 + %19 : !scfhe.scfhecipher<1 x i64>, !scfhe.scfhecipher<1 x i64>
-      scf.yield %20 : !scfhe.scfhecipher<1 x i64>
+    %7 = scfhe.load %5[%c0] : <16 x i64> -> <1 x i64>
+    %8 = scfhe.add %6 + %7 : !scfhe.scfhecipher<1 x i64>, !scfhe.scfhecipher<1 x i64>
+    %9 = scfhe.load %5[%c1] : <16 x i64> -> <1 x i64>
+    %10 = scfhe.add %8 + %9 : !scfhe.scfhecipher<1 x i64>, !scfhe.scfhecipher<1 x i64>
+    %11 = scfhe.load %5[%c2] : <16 x i64> -> <1 x i64>
+    %12 = scfhe.add %10 + %11 : !scfhe.scfhecipher<1 x i64>, !scfhe.scfhecipher<1 x i64>
+    %13 = scfhe.load %5[%c3] : <16 x i64> -> <1 x i64>
+    %14 = scfhe.add %12 + %13 : !scfhe.scfhecipher<1 x i64>, !scfhe.scfhecipher<1 x i64>
+    %15 = scfhe.load %5[%c4] : <16 x i64> -> <1 x i64>
+    %16 = scfhe.add %14 + %15 : !scfhe.scfhecipher<1 x i64>, !scfhe.scfhecipher<1 x i64>
+    %17 = scfhe.load %5[%c5] : <16 x i64> -> <1 x i64>
+    %18 = scfhe.add %16 + %17 : !scfhe.scfhecipher<1 x i64>, !scfhe.scfhecipher<1 x i64>
+    %19 = scfhe.load %5[%c6] : <16 x i64> -> <1 x i64>
+    %20 = scfhe.add %18 + %19 : !scfhe.scfhecipher<1 x i64>, !scfhe.scfhecipher<1 x i64>
+    %21 = scfhe.load %5[%c7] : <16 x i64> -> <1 x i64>
+    %22 = scfhe.add %20 + %21 : !scfhe.scfhecipher<1 x i64>, !scfhe.scfhecipher<1 x i64>
+    %23 = scfhe.load %5[%c8] : <16 x i64> -> <1 x i64>
+    %24 = scfhe.add %22 + %23 : !scfhe.scfhecipher<1 x i64>, !scfhe.scfhecipher<1 x i64>
+    %25 = scfhe.load %5[%c9] : <16 x i64> -> <1 x i64>
+    %26 = scfhe.add %24 + %25 : !scfhe.scfhecipher<1 x i64>, !scfhe.scfhecipher<1 x i64>
+    %27 = scfhe.load %5[%c10] : <16 x i64> -> <1 x i64>
+    %28 = scfhe.add %26 + %27 : !scfhe.scfhecipher<1 x i64>, !scfhe.scfhecipher<1 x i64>
+    %29 = scfhe.load %5[%c11] : <16 x i64> -> <1 x i64>
+    %30 = scfhe.add %28 + %29 : !scfhe.scfhecipher<1 x i64>, !scfhe.scfhecipher<1 x i64>
+    %31 = scfhe.load %5[%c12] : <16 x i64> -> <1 x i64>
+    %32 = scfhe.add %30 + %31 : !scfhe.scfhecipher<1 x i64>, !scfhe.scfhecipher<1 x i64>
+    %33 = scfhe.load %5[%c13] : <16 x i64> -> <1 x i64>
+    %34 = scfhe.add %32 + %33 : !scfhe.scfhecipher<1 x i64>, !scfhe.scfhecipher<1 x i64>
+    %35 = scfhe.load %5[%c14] : <16 x i64> -> <1 x i64>
+    %36 = scfhe.add %34 + %35 : !scfhe.scfhecipher<1 x i64>, !scfhe.scfhecipher<1 x i64>
+    %37 = scfhe.load %5[%c15] : <16 x i64> -> <1 x i64>
+    %38 = scfhe.add %36 + %37 : !scfhe.scfhecipher<1 x i64>, !scfhe.scfhecipher<1 x i64>
+    %39 = scfhe.div %38, %cst : !scfhe.scfhecipher<1 x i64>, f64
+    %40 = scfhe.decrypt %39 : !scfhe.scfhecipher<1 x i64> : memref<1xf64>
+    memref.copy %40, %alloca : memref<1xf64> to memref<1xf64>
+    %41 = llvm.getelementptr %3[0, 0] : (!llvm.ptr) -> !llvm.ptr, !llvm.array<14 x i8>
+    %42 = llvm.call @printf(%41) vararg(!llvm.func<i32 (ptr, ...)>) : (!llvm.ptr) -> i32
+    %43 = llvm.getelementptr %2[0, 0] : (!llvm.ptr) -> !llvm.ptr, !llvm.array<20 x i8>
+    affine.for %arg0 = 0 to 16 {
+      %49 = arith.index_cast %arg0 : index to i64
+      %50 = affine.load %alloc[%arg0] : memref<16xf64>
+      %51 = llvm.call @printf(%43, %49, %50) vararg(!llvm.func<i32 (ptr, ...)>) : (!llvm.ptr, i64, f64) -> i32
     }
-    %8 = scfhe.encrypt %cst : f64 -> !scfhe.scfhecipher<1 x i64>
-    %9 = scfhe.div %7, %8 : !scfhe.scfhecipher<1 x i64>, !scfhe.scfhecipher<1 x i64>
-    %10 = scfhe.decrypt %9 : !scfhe.scfhecipher<1 x i64> : memref<1xf64>
-    memref.copy %10, %alloca : memref<1xf64> to memref<1xf64>
-    %11 = llvm.getelementptr %3[0, 0] : (!llvm.ptr) -> !llvm.ptr, !llvm.array<14 x i8>
-    %12 = llvm.call @printf(%11) vararg(!llvm.func<i32 (ptr, ...)>) : (!llvm.ptr) -> i32
-    %13 = llvm.getelementptr %2[0, 0] : (!llvm.ptr) -> !llvm.ptr, !llvm.array<20 x i8>
-    affine.for %arg0 = 0 to 10 {
-      %19 = arith.index_cast %arg0 : index to i64
-      %20 = affine.load %alloc[%arg0] : memref<10xf64>
-      %21 = llvm.call @printf(%13, %19, %20) vararg(!llvm.func<i32 (ptr, ...)>) : (!llvm.ptr, i64, f64) -> i32
-    }
-    %14 = llvm.getelementptr %1[0, 0] : (!llvm.ptr) -> !llvm.ptr, !llvm.array<17 x i8>
-    %15 = llvm.call @printf(%14) vararg(!llvm.func<i32 (ptr, ...)>) : (!llvm.ptr) -> i32
-    %16 = llvm.getelementptr %0[0, 0] : (!llvm.ptr) -> !llvm.ptr, !llvm.array<15 x i8>
-    %17 = affine.load %alloca[0] : memref<1xf64>
-    %18 = llvm.call @printf(%16, %17) vararg(!llvm.func<i32 (ptr, ...)>) : (!llvm.ptr, f64) -> i32
-    memref.dealloc %alloc : memref<10xf64>
+    %44 = llvm.getelementptr %1[0, 0] : (!llvm.ptr) -> !llvm.ptr, !llvm.array<17 x i8>
+    %45 = llvm.call @printf(%44) vararg(!llvm.func<i32 (ptr, ...)>) : (!llvm.ptr) -> i32
+    %46 = llvm.getelementptr %0[0, 0] : (!llvm.ptr) -> !llvm.ptr, !llvm.array<15 x i8>
+    %47 = affine.load %alloca[0] : memref<1xf64>
+    %48 = llvm.call @printf(%46, %47) vararg(!llvm.func<i32 (ptr, ...)>) : (!llvm.ptr, f64) -> i32
+    memref.dealloc %alloc : memref<16xf64>
     return %c0_i32 : i32
   }
 }
@@ -288,8 +379,23 @@ module {
 Converting Encrypt: loc("means.mlir":48:10)
 Converting Encrypt: loc(callsite("means.mlir":27:10 at "means.mlir":48:10))
 Converting Arithmetic Op: scfhe.add
-Converting Encrypt: loc(callsite("means.mlir":33:10 at "means.mlir":48:10))
+Converting Arithmetic Op: scfhe.add
+Converting Arithmetic Op: scfhe.add
+Converting Arithmetic Op: scfhe.add
+Converting Arithmetic Op: scfhe.add
+Converting Arithmetic Op: scfhe.add
+Converting Arithmetic Op: scfhe.add
+Converting Arithmetic Op: scfhe.add
+Converting Arithmetic Op: scfhe.add
+Converting Arithmetic Op: scfhe.add
+Converting Arithmetic Op: scfhe.add
+Converting Arithmetic Op: scfhe.add
+Converting Arithmetic Op: scfhe.add
+Converting Arithmetic Op: scfhe.add
+Converting Arithmetic Op: scfhe.add
+Converting Arithmetic Op: scfhe.add
 Converting Arithmetic Op: scfhe.div
+  -> Optimization: Keeping SIMDDivOp divisor as plaintext.
 --- Phase 1 Finished. Starting Level Alignment ---
 --- SIMD Conversion Complete ---
 // -----// IR Dump After ConvertToSIMDPass (convert-to-simd) //----- //
@@ -316,10 +422,23 @@ module {
   }
   func.func private @rand() -> i32
   func.func @main() -> i32 {
-    %cst = arith.constant 1.000000e+01 : f64
+    %c15 = arith.constant 15 : index
+    %c14 = arith.constant 14 : index
+    %c13 = arith.constant 13 : index
+    %c12 = arith.constant 12 : index
+    %c11 = arith.constant 11 : index
     %c10 = arith.constant 10 : index
-    %c0 = arith.constant 0 : index
+    %c9 = arith.constant 9 : index
+    %c8 = arith.constant 8 : index
+    %c7 = arith.constant 7 : index
+    %c6 = arith.constant 6 : index
+    %c5 = arith.constant 5 : index
+    %c4 = arith.constant 4 : index
+    %c3 = arith.constant 3 : index
+    %c2 = arith.constant 2 : index
     %c1 = arith.constant 1 : index
+    %c0 = arith.constant 0 : index
+    %cst = arith.constant 1.600000e+01 : f64
     %cst_0 = arith.constant 0.000000e+00 : f64
     %cst_1 = arith.constant 0x41DFFFFFFFC00000 : f64
     %cst_2 = arith.constant 1.000000e+02 : f64
@@ -331,40 +450,66 @@ module {
     %c0_i32 = arith.constant 0 : i32
     %alloca = memref.alloca() : memref<1xf64>
     affine.store %4, %alloca[0] : memref<1xf64>
-    %alloc = memref.alloc() : memref<10xf64>
-    affine.for %arg0 = 0 to 10 {
-      %19 = func.call @rand() : () -> i32
-      %20 = arith.sitofp %19 : i32 to f64
-      %21 = arith.divf %20, %cst_1 : f64
-      %22 = arith.mulf %21, %cst_2 : f64
-      %23 = arith.addf %22, %cst_0 : f64
-      affine.store %23, %alloc[%arg0] : memref<10xf64>
+    %alloc = memref.alloc() : memref<16xf64>
+    affine.for %arg0 = 0 to 16 {
+      %49 = func.call @rand() : () -> i32
+      %50 = arith.sitofp %49 : i32 to f64
+      %51 = arith.divf %50, %cst_1 : f64
+      %52 = arith.mulf %51, %cst_2 : f64
+      %53 = arith.addf %52, %cst_0 : f64
+      affine.store %53, %alloc[%arg0] : memref<16xf64>
     }
-    %5 = simd.encrypt %alloc : memref<10xf64> -> !simd.simdcipher<31 x 10 x i64>
+    %5 = simd.encrypt %alloc : memref<16xf64> -> !simd.simdcipher<31 x 16 x i64>
     %6 = simd.encrypt %cst_0 : f64 -> !simd.simdcipher<31 x 1 x i64>
-    %7 = scf.for %arg0 = %c0 to %c10 step %c1 iter_args(%arg1 = %6) -> (!simd.simdcipher<31 x 1 x i64>) {
-      %19 = simd.load %5[%arg0] : !simd.simdcipher<31 x 10 x i64> -> !simd.simdcipher<31 x 1 x i64>
-      %20 = simd.add %arg1 + %19 : !simd.simdcipher<31 x 1 x i64>, !simd.simdcipher<31 x 1 x i64> -> !simd.simdcipher<31 x 1 x i64>
-      scf.yield %20 : !simd.simdcipher<31 x 1 x i64>
+    %7 = simd.load %5[%c0] : !simd.simdcipher<31 x 16 x i64> -> !simd.simdcipher<31 x 1 x i64>
+    %8 = simd.add %6, %7 : !simd.simdcipher<31 x 1 x i64>, !simd.simdcipher<31 x 1 x i64> -> !simd.simdcipher<31 x 1 x i64>
+    %9 = simd.load %5[%c1] : !simd.simdcipher<31 x 16 x i64> -> !simd.simdcipher<31 x 1 x i64>
+    %10 = simd.add %8, %9 : !simd.simdcipher<31 x 1 x i64>, !simd.simdcipher<31 x 1 x i64> -> !simd.simdcipher<31 x 1 x i64>
+    %11 = simd.load %5[%c2] : !simd.simdcipher<31 x 16 x i64> -> !simd.simdcipher<31 x 1 x i64>
+    %12 = simd.add %10, %11 : !simd.simdcipher<31 x 1 x i64>, !simd.simdcipher<31 x 1 x i64> -> !simd.simdcipher<31 x 1 x i64>
+    %13 = simd.load %5[%c3] : !simd.simdcipher<31 x 16 x i64> -> !simd.simdcipher<31 x 1 x i64>
+    %14 = simd.add %12, %13 : !simd.simdcipher<31 x 1 x i64>, !simd.simdcipher<31 x 1 x i64> -> !simd.simdcipher<31 x 1 x i64>
+    %15 = simd.load %5[%c4] : !simd.simdcipher<31 x 16 x i64> -> !simd.simdcipher<31 x 1 x i64>
+    %16 = simd.add %14, %15 : !simd.simdcipher<31 x 1 x i64>, !simd.simdcipher<31 x 1 x i64> -> !simd.simdcipher<31 x 1 x i64>
+    %17 = simd.load %5[%c5] : !simd.simdcipher<31 x 16 x i64> -> !simd.simdcipher<31 x 1 x i64>
+    %18 = simd.add %16, %17 : !simd.simdcipher<31 x 1 x i64>, !simd.simdcipher<31 x 1 x i64> -> !simd.simdcipher<31 x 1 x i64>
+    %19 = simd.load %5[%c6] : !simd.simdcipher<31 x 16 x i64> -> !simd.simdcipher<31 x 1 x i64>
+    %20 = simd.add %18, %19 : !simd.simdcipher<31 x 1 x i64>, !simd.simdcipher<31 x 1 x i64> -> !simd.simdcipher<31 x 1 x i64>
+    %21 = simd.load %5[%c7] : !simd.simdcipher<31 x 16 x i64> -> !simd.simdcipher<31 x 1 x i64>
+    %22 = simd.add %20, %21 : !simd.simdcipher<31 x 1 x i64>, !simd.simdcipher<31 x 1 x i64> -> !simd.simdcipher<31 x 1 x i64>
+    %23 = simd.load %5[%c8] : !simd.simdcipher<31 x 16 x i64> -> !simd.simdcipher<31 x 1 x i64>
+    %24 = simd.add %22, %23 : !simd.simdcipher<31 x 1 x i64>, !simd.simdcipher<31 x 1 x i64> -> !simd.simdcipher<31 x 1 x i64>
+    %25 = simd.load %5[%c9] : !simd.simdcipher<31 x 16 x i64> -> !simd.simdcipher<31 x 1 x i64>
+    %26 = simd.add %24, %25 : !simd.simdcipher<31 x 1 x i64>, !simd.simdcipher<31 x 1 x i64> -> !simd.simdcipher<31 x 1 x i64>
+    %27 = simd.load %5[%c10] : !simd.simdcipher<31 x 16 x i64> -> !simd.simdcipher<31 x 1 x i64>
+    %28 = simd.add %26, %27 : !simd.simdcipher<31 x 1 x i64>, !simd.simdcipher<31 x 1 x i64> -> !simd.simdcipher<31 x 1 x i64>
+    %29 = simd.load %5[%c11] : !simd.simdcipher<31 x 16 x i64> -> !simd.simdcipher<31 x 1 x i64>
+    %30 = simd.add %28, %29 : !simd.simdcipher<31 x 1 x i64>, !simd.simdcipher<31 x 1 x i64> -> !simd.simdcipher<31 x 1 x i64>
+    %31 = simd.load %5[%c12] : !simd.simdcipher<31 x 16 x i64> -> !simd.simdcipher<31 x 1 x i64>
+    %32 = simd.add %30, %31 : !simd.simdcipher<31 x 1 x i64>, !simd.simdcipher<31 x 1 x i64> -> !simd.simdcipher<31 x 1 x i64>
+    %33 = simd.load %5[%c13] : !simd.simdcipher<31 x 16 x i64> -> !simd.simdcipher<31 x 1 x i64>
+    %34 = simd.add %32, %33 : !simd.simdcipher<31 x 1 x i64>, !simd.simdcipher<31 x 1 x i64> -> !simd.simdcipher<31 x 1 x i64>
+    %35 = simd.load %5[%c14] : !simd.simdcipher<31 x 16 x i64> -> !simd.simdcipher<31 x 1 x i64>
+    %36 = simd.add %34, %35 : !simd.simdcipher<31 x 1 x i64>, !simd.simdcipher<31 x 1 x i64> -> !simd.simdcipher<31 x 1 x i64>
+    %37 = simd.load %5[%c15] : !simd.simdcipher<31 x 16 x i64> -> !simd.simdcipher<31 x 1 x i64>
+    %38 = simd.add %36, %37 : !simd.simdcipher<31 x 1 x i64>, !simd.simdcipher<31 x 1 x i64> -> !simd.simdcipher<31 x 1 x i64>
+    %39 = simd.div %38, %cst : !simd.simdcipher<31 x 1 x i64>, f64 -> !simd.simdcipher<30 x 1 x i64>
+    %40 = simd.decrypt %39 : !simd.simdcipher<30 x 1 x i64> -> memref<1xf64>
+    memref.copy %40, %alloca : memref<1xf64> to memref<1xf64>
+    %41 = llvm.getelementptr %3[0, 0] : (!llvm.ptr) -> !llvm.ptr, !llvm.array<14 x i8>
+    %42 = llvm.call @printf(%41) vararg(!llvm.func<i32 (ptr, ...)>) : (!llvm.ptr) -> i32
+    %43 = llvm.getelementptr %2[0, 0] : (!llvm.ptr) -> !llvm.ptr, !llvm.array<20 x i8>
+    affine.for %arg0 = 0 to 16 {
+      %49 = arith.index_cast %arg0 : index to i64
+      %50 = affine.load %alloc[%arg0] : memref<16xf64>
+      %51 = llvm.call @printf(%43, %49, %50) vararg(!llvm.func<i32 (ptr, ...)>) : (!llvm.ptr, i64, f64) -> i32
     }
-    %8 = simd.encrypt %cst : f64 -> !simd.simdcipher<31 x 1 x i64>
-    %9 = simd.div %7, %8 : !simd.simdcipher<31 x 1 x i64>, !simd.simdcipher<31 x 1 x i64> -> !simd.simdcipher<30 x 1 x i64>
-    %10 = simd.decrypt %9 : !simd.simdcipher<30 x 1 x i64> : memref<1xf64>
-    memref.copy %10, %alloca : memref<1xf64> to memref<1xf64>
-    %11 = llvm.getelementptr %3[0, 0] : (!llvm.ptr) -> !llvm.ptr, !llvm.array<14 x i8>
-    %12 = llvm.call @printf(%11) vararg(!llvm.func<i32 (ptr, ...)>) : (!llvm.ptr) -> i32
-    %13 = llvm.getelementptr %2[0, 0] : (!llvm.ptr) -> !llvm.ptr, !llvm.array<20 x i8>
-    affine.for %arg0 = 0 to 10 {
-      %19 = arith.index_cast %arg0 : index to i64
-      %20 = affine.load %alloc[%arg0] : memref<10xf64>
-      %21 = llvm.call @printf(%13, %19, %20) vararg(!llvm.func<i32 (ptr, ...)>) : (!llvm.ptr, i64, f64) -> i32
-    }
-    %14 = llvm.getelementptr %1[0, 0] : (!llvm.ptr) -> !llvm.ptr, !llvm.array<17 x i8>
-    %15 = llvm.call @printf(%14) vararg(!llvm.func<i32 (ptr, ...)>) : (!llvm.ptr) -> i32
-    %16 = llvm.getelementptr %0[0, 0] : (!llvm.ptr) -> !llvm.ptr, !llvm.array<15 x i8>
-    %17 = affine.load %alloca[0] : memref<1xf64>
-    %18 = llvm.call @printf(%16, %17) vararg(!llvm.func<i32 (ptr, ...)>) : (!llvm.ptr, f64) -> i32
-    memref.dealloc %alloc : memref<10xf64>
+    %44 = llvm.getelementptr %1[0, 0] : (!llvm.ptr) -> !llvm.ptr, !llvm.array<17 x i8>
+    %45 = llvm.call @printf(%44) vararg(!llvm.func<i32 (ptr, ...)>) : (!llvm.ptr) -> i32
+    %46 = llvm.getelementptr %0[0, 0] : (!llvm.ptr) -> !llvm.ptr, !llvm.array<15 x i8>
+    %47 = affine.load %alloca[0] : memref<1xf64>
+    %48 = llvm.call @printf(%46, %47) vararg(!llvm.func<i32 (ptr, ...)>) : (!llvm.ptr, f64) -> i32
+    memref.dealloc %alloc : memref<16xf64>
     return %c0_i32 : i32
   }
 }
@@ -394,10 +539,23 @@ module {
   }
   func.func private @rand() -> i32
   func.func @main() -> i32 {
-    %cst = arith.constant 1.000000e+01 : f64
+    %c15 = arith.constant 15 : index
+    %c14 = arith.constant 14 : index
+    %c13 = arith.constant 13 : index
+    %c12 = arith.constant 12 : index
+    %c11 = arith.constant 11 : index
     %c10 = arith.constant 10 : index
-    %c0 = arith.constant 0 : index
+    %c9 = arith.constant 9 : index
+    %c8 = arith.constant 8 : index
+    %c7 = arith.constant 7 : index
+    %c6 = arith.constant 6 : index
+    %c5 = arith.constant 5 : index
+    %c4 = arith.constant 4 : index
+    %c3 = arith.constant 3 : index
+    %c2 = arith.constant 2 : index
     %c1 = arith.constant 1 : index
+    %c0 = arith.constant 0 : index
+    %cst = arith.constant 1.600000e+01 : f64
     %cst_0 = arith.constant 0.000000e+00 : f64
     %cst_1 = arith.constant 0x41DFFFFFFFC00000 : f64
     %cst_2 = arith.constant 1.000000e+02 : f64
@@ -409,177 +567,127 @@ module {
     %c0_i32 = arith.constant 0 : i32
     %alloca = memref.alloca() : memref<1xf64>
     affine.store %4, %alloca[0] : memref<1xf64>
-    %alloc = memref.alloc() : memref<10xf64>
-    affine.for %arg0 = 0 to 10 {
-      %19 = func.call @rand() : () -> i32
-      %20 = arith.sitofp %19 : i32 to f64
-      %21 = arith.divf %20, %cst_1 : f64
-      %22 = arith.mulf %21, %cst_2 : f64
-      %23 = arith.addf %22, %cst_0 : f64
-      affine.store %23, %alloc[%arg0] : memref<10xf64>
+    %alloc = memref.alloc() : memref<16xf64>
+    affine.for %arg0 = 0 to 16 {
+      %49 = func.call @rand() : () -> i32
+      %50 = arith.sitofp %49 : i32 to f64
+      %51 = arith.divf %50, %cst_1 : f64
+      %52 = arith.mulf %51, %cst_2 : f64
+      %53 = arith.addf %52, %cst_0 : f64
+      affine.store %53, %alloc[%arg0] : memref<16xf64>
     }
-    %5 = simd.encrypt %alloc : memref<10xf64> -> !simd.simdcipher<31 x 10 x i64>
+    %5 = simd.encrypt %alloc : memref<16xf64> -> !simd.simdcipher<31 x 16 x i64>
     %6 = simd.encrypt %cst_0 : f64 -> !simd.simdcipher<31 x 1 x i64>
-    %7 = scf.for %arg0 = %c0 to %c10 step %c1 iter_args(%arg1 = %6) -> (!simd.simdcipher<31 x 1 x i64>) {
-      %19 = simd.load %5[%arg0] : !simd.simdcipher<31 x 10 x i64> -> !simd.simdcipher<31 x 1 x i64>
-      %20 = simd.add %arg1 + %19 : !simd.simdcipher<31 x 1 x i64>, !simd.simdcipher<31 x 1 x i64> -> !simd.simdcipher<31 x 1 x i64>
-      scf.yield %20 : !simd.simdcipher<31 x 1 x i64>
+    %7 = simd.load %5[%c0] : !simd.simdcipher<31 x 16 x i64> -> !simd.simdcipher<31 x 1 x i64>
+    %8 = simd.add %6, %7 : !simd.simdcipher<31 x 1 x i64>, !simd.simdcipher<31 x 1 x i64> -> !simd.simdcipher<31 x 1 x i64>
+    %9 = simd.load %5[%c1] : !simd.simdcipher<31 x 16 x i64> -> !simd.simdcipher<31 x 1 x i64>
+    %10 = simd.add %8, %9 : !simd.simdcipher<31 x 1 x i64>, !simd.simdcipher<31 x 1 x i64> -> !simd.simdcipher<31 x 1 x i64>
+    %11 = simd.load %5[%c2] : !simd.simdcipher<31 x 16 x i64> -> !simd.simdcipher<31 x 1 x i64>
+    %12 = simd.add %10, %11 : !simd.simdcipher<31 x 1 x i64>, !simd.simdcipher<31 x 1 x i64> -> !simd.simdcipher<31 x 1 x i64>
+    %13 = simd.load %5[%c3] : !simd.simdcipher<31 x 16 x i64> -> !simd.simdcipher<31 x 1 x i64>
+    %14 = simd.add %12, %13 : !simd.simdcipher<31 x 1 x i64>, !simd.simdcipher<31 x 1 x i64> -> !simd.simdcipher<31 x 1 x i64>
+    %15 = simd.load %5[%c4] : !simd.simdcipher<31 x 16 x i64> -> !simd.simdcipher<31 x 1 x i64>
+    %16 = simd.add %14, %15 : !simd.simdcipher<31 x 1 x i64>, !simd.simdcipher<31 x 1 x i64> -> !simd.simdcipher<31 x 1 x i64>
+    %17 = simd.load %5[%c5] : !simd.simdcipher<31 x 16 x i64> -> !simd.simdcipher<31 x 1 x i64>
+    %18 = simd.add %16, %17 : !simd.simdcipher<31 x 1 x i64>, !simd.simdcipher<31 x 1 x i64> -> !simd.simdcipher<31 x 1 x i64>
+    %19 = simd.load %5[%c6] : !simd.simdcipher<31 x 16 x i64> -> !simd.simdcipher<31 x 1 x i64>
+    %20 = simd.add %18, %19 : !simd.simdcipher<31 x 1 x i64>, !simd.simdcipher<31 x 1 x i64> -> !simd.simdcipher<31 x 1 x i64>
+    %21 = simd.load %5[%c7] : !simd.simdcipher<31 x 16 x i64> -> !simd.simdcipher<31 x 1 x i64>
+    %22 = simd.add %20, %21 : !simd.simdcipher<31 x 1 x i64>, !simd.simdcipher<31 x 1 x i64> -> !simd.simdcipher<31 x 1 x i64>
+    %23 = simd.load %5[%c8] : !simd.simdcipher<31 x 16 x i64> -> !simd.simdcipher<31 x 1 x i64>
+    %24 = simd.add %22, %23 : !simd.simdcipher<31 x 1 x i64>, !simd.simdcipher<31 x 1 x i64> -> !simd.simdcipher<31 x 1 x i64>
+    %25 = simd.load %5[%c9] : !simd.simdcipher<31 x 16 x i64> -> !simd.simdcipher<31 x 1 x i64>
+    %26 = simd.add %24, %25 : !simd.simdcipher<31 x 1 x i64>, !simd.simdcipher<31 x 1 x i64> -> !simd.simdcipher<31 x 1 x i64>
+    %27 = simd.load %5[%c10] : !simd.simdcipher<31 x 16 x i64> -> !simd.simdcipher<31 x 1 x i64>
+    %28 = simd.add %26, %27 : !simd.simdcipher<31 x 1 x i64>, !simd.simdcipher<31 x 1 x i64> -> !simd.simdcipher<31 x 1 x i64>
+    %29 = simd.load %5[%c11] : !simd.simdcipher<31 x 16 x i64> -> !simd.simdcipher<31 x 1 x i64>
+    %30 = simd.add %28, %29 : !simd.simdcipher<31 x 1 x i64>, !simd.simdcipher<31 x 1 x i64> -> !simd.simdcipher<31 x 1 x i64>
+    %31 = simd.load %5[%c12] : !simd.simdcipher<31 x 16 x i64> -> !simd.simdcipher<31 x 1 x i64>
+    %32 = simd.add %30, %31 : !simd.simdcipher<31 x 1 x i64>, !simd.simdcipher<31 x 1 x i64> -> !simd.simdcipher<31 x 1 x i64>
+    %33 = simd.load %5[%c13] : !simd.simdcipher<31 x 16 x i64> -> !simd.simdcipher<31 x 1 x i64>
+    %34 = simd.add %32, %33 : !simd.simdcipher<31 x 1 x i64>, !simd.simdcipher<31 x 1 x i64> -> !simd.simdcipher<31 x 1 x i64>
+    %35 = simd.load %5[%c14] : !simd.simdcipher<31 x 16 x i64> -> !simd.simdcipher<31 x 1 x i64>
+    %36 = simd.add %34, %35 : !simd.simdcipher<31 x 1 x i64>, !simd.simdcipher<31 x 1 x i64> -> !simd.simdcipher<31 x 1 x i64>
+    %37 = simd.load %5[%c15] : !simd.simdcipher<31 x 16 x i64> -> !simd.simdcipher<31 x 1 x i64>
+    %38 = simd.add %36, %37 : !simd.simdcipher<31 x 1 x i64>, !simd.simdcipher<31 x 1 x i64> -> !simd.simdcipher<31 x 1 x i64>
+    %39 = simd.div %38, %cst : !simd.simdcipher<31 x 1 x i64>, f64 -> !simd.simdcipher<30 x 1 x i64>
+    %40 = simd.decrypt %39 : !simd.simdcipher<30 x 1 x i64> -> memref<1xf64>
+    memref.copy %40, %alloca : memref<1xf64> to memref<1xf64>
+    %41 = llvm.getelementptr %3[0, 0] : (!llvm.ptr) -> !llvm.ptr, !llvm.array<14 x i8>
+    %42 = llvm.call @printf(%41) vararg(!llvm.func<i32 (ptr, ...)>) : (!llvm.ptr) -> i32
+    %43 = llvm.getelementptr %2[0, 0] : (!llvm.ptr) -> !llvm.ptr, !llvm.array<20 x i8>
+    affine.for %arg0 = 0 to 16 {
+      %49 = arith.index_cast %arg0 : index to i64
+      %50 = affine.load %alloc[%arg0] : memref<16xf64>
+      %51 = llvm.call @printf(%43, %49, %50) vararg(!llvm.func<i32 (ptr, ...)>) : (!llvm.ptr, i64, f64) -> i32
     }
-    %8 = simd.encrypt %cst : f64 -> !simd.simdcipher<31 x 1 x i64>
-    %9 = simd.div %7, %8 : !simd.simdcipher<31 x 1 x i64>, !simd.simdcipher<31 x 1 x i64> -> !simd.simdcipher<30 x 1 x i64>
-    %10 = simd.decrypt %9 : !simd.simdcipher<30 x 1 x i64> : memref<1xf64>
-    memref.copy %10, %alloca : memref<1xf64> to memref<1xf64>
-    %11 = llvm.getelementptr %3[0, 0] : (!llvm.ptr) -> !llvm.ptr, !llvm.array<14 x i8>
-    %12 = llvm.call @printf(%11) vararg(!llvm.func<i32 (ptr, ...)>) : (!llvm.ptr) -> i32
-    %13 = llvm.getelementptr %2[0, 0] : (!llvm.ptr) -> !llvm.ptr, !llvm.array<20 x i8>
-    affine.for %arg0 = 0 to 10 {
-      %19 = arith.index_cast %arg0 : index to i64
-      %20 = affine.load %alloc[%arg0] : memref<10xf64>
-      %21 = llvm.call @printf(%13, %19, %20) vararg(!llvm.func<i32 (ptr, ...)>) : (!llvm.ptr, i64, f64) -> i32
-    }
-    %14 = llvm.getelementptr %1[0, 0] : (!llvm.ptr) -> !llvm.ptr, !llvm.array<17 x i8>
-    %15 = llvm.call @printf(%14) vararg(!llvm.func<i32 (ptr, ...)>) : (!llvm.ptr) -> i32
-    %16 = llvm.getelementptr %0[0, 0] : (!llvm.ptr) -> !llvm.ptr, !llvm.array<15 x i8>
-    %17 = affine.load %alloca[0] : memref<1xf64>
-    %18 = llvm.call @printf(%16, %17) vararg(!llvm.func<i32 (ptr, ...)>) : (!llvm.ptr, f64) -> i32
-    memref.dealloc %alloc : memref<10xf64>
+    %44 = llvm.getelementptr %1[0, 0] : (!llvm.ptr) -> !llvm.ptr, !llvm.array<17 x i8>
+    %45 = llvm.call @printf(%44) vararg(!llvm.func<i32 (ptr, ...)>) : (!llvm.ptr) -> i32
+    %46 = llvm.getelementptr %0[0, 0] : (!llvm.ptr) -> !llvm.ptr, !llvm.array<15 x i8>
+    %47 = affine.load %alloca[0] : memref<1xf64>
+    %48 = llvm.call @printf(%46, %47) vararg(!llvm.func<i32 (ptr, ...)>) : (!llvm.ptr, f64) -> i32
+    memref.dealloc %alloc : memref<16xf64>
     return %c0_i32 : i32
   }
 }
 
 
-[ModeSel] CostTable loaded successfully from /mnt/data0/home/syt/Security_Artifact/git-version/Libra/Libra/Dialect/Analysis/cost_table.json
 
-=================================================================
 [ModeSel] Processing Function: @main
-=================================================================
 
-[Graph] Topological Sort Result (7 nodes):
-  - simd.encrypt (Preds: 0)
-  - simd.encrypt (Preds: 0)
-  - simd.encrypt (Preds: 0)
-  - simd.load (Preds: 1)
-  - simd.div (Preds: 1)
-  - simd.add (Preds: 1)
-  - simd.decrypt (Preds: 1)
+>>> --- Wave Iteration 0 Start --- <<<
+  [Phase 1] Top-Down Scan
+    [TD HIT] simd.div -> SISD
+  [Phase 2] Bottom-Up Scan
+    [BU HIT] simd.add -> SISD
+      >>> [Propagate] Starting SISD Wave UPWARDS from simd.add
+        -> Parent simd.add flips to SISD (Cascade Up)
+        -> Parent simd.load flips to SISD (Cascade Up)
+        -> Parent simd.add flips to SISD (Cascade Up)
+        -> Parent simd.load flips to SISD (Cascade Up)
+        -> Parent simd.add flips to SISD (Cascade Up)
+        -> Parent simd.load flips to SISD (Cascade Up)
+        -> Parent simd.add flips to SISD (Cascade Up)
+        -> Parent simd.load flips to SISD (Cascade Up)
+        -> Parent simd.add flips to SISD (Cascade Up)
+        -> Parent simd.load flips to SISD (Cascade Up)
+        -> Parent simd.add flips to SISD (Cascade Up)
+        -> Parent simd.load flips to SISD (Cascade Up)
+        -> Parent simd.add flips to SISD (Cascade Up)
+        -> Parent simd.load flips to SISD (Cascade Up)
+        -> Parent simd.add flips to SISD (Cascade Up)
+        -> Parent simd.load flips to SISD (Cascade Up)
+        -> Parent simd.add flips to SISD (Cascade Up)
+        -> Parent simd.load flips to SISD (Cascade Up)
+        -> Parent simd.add flips to SISD (Cascade Up)
+        -> Parent simd.load flips to SISD (Cascade Up)
+        -> Parent simd.add flips to SISD (Cascade Up)
+        -> Parent simd.load flips to SISD (Cascade Up)
+        -> Parent simd.add flips to SISD (Cascade Up)
+        -> Parent simd.load flips to SISD (Cascade Up)
+        -> Parent simd.add flips to SISD (Cascade Up)
+        -> Parent simd.load flips to SISD (Cascade Up)
+        -> Parent simd.add flips to SISD (Cascade Up)
+        -> Parent simd.load flips to SISD (Cascade Up)
+        -> Parent simd.add flips to SISD (Cascade Up)
+        -> Parent simd.load flips to SISD (Cascade Up)
+        -> Parent simd.encrypt flips to SISD (Cascade Up)
+        -> Parent simd.encrypt flips to SISD (Cascade Up)
+        -> Parent simd.load flips to SISD (Cascade Up)
 
->>> --- Iteration 0 Start --- <<<
-  [Phase 1] Top-Down Greedy Allocation:
-    Eval: simd.encrypt
-      L_in=31, mustBoot=No
-      Cost -> SIMD: 0.000000e+00 (Op:0.000000e+00+Cast:0.000000e+00)
-      Cost -> SISD: 0.000000e+00 (Op:0.000000e+00+Cast:0.000000e+00)
-      => Decision: Switched to SISD (Cheaper)
-    Eval: simd.encrypt
-      L_in=31, mustBoot=No
-      Cost -> SIMD: 0.000000e+00 (Op:0.000000e+00+Cast:0.000000e+00)
-      Cost -> SISD: 0.000000e+00 (Op:0.000000e+00+Cast:0.000000e+00)
-      => Decision: Switched to SISD (Cheaper)
-    Eval: simd.encrypt
-      L_in=31, mustBoot=No
-      Cost -> SIMD: 0.000000e+00 (Op:0.000000e+00+Cast:0.000000e+00)
-      Cost -> SISD: 0.000000e+00 (Op:0.000000e+00+Cast:0.000000e+00)
-      => Decision: Switched to SISD (Cheaper)
-    Eval: simd.load
-      L_in=31, mustBoot=No
-      Cost -> SIMD: 2.500000e+00 (Op:0.000000e+00+Cast:2.500000e+00)
-      Cost -> SISD: 0.000000e+00 (Op:0.000000e+00+Cast:0.000000e+00)
-      => Decision: Switched to SISD (Cheaper)
-    Eval: simd.div
-      L_in=31, mustBoot=No
-      Cost -> SIMD: 2.500000e+00 (Op:0.000000e+00+Cast:2.500000e+00)
-      Cost -> SISD: 0.000000e+00 (Op:0.000000e+00+Cast:0.000000e+00)
-      => Decision: Switched to SISD (Cheaper)
-    Eval: simd.add
-      L_in=31, mustBoot=No
-      Cost -> SIMD: 7.600000e+00 (Op:5.100000e+00+Cast:2.500000e+00)
-      Cost -> SISD: 5.000000e-01 (Op:5.000000e-01+Cast:0.000000e+00)
-      => Decision: Switched to SISD (Cheaper)
-    Eval: simd.decrypt
-      L_in=31, mustBoot=No
-      Cost -> SIMD: 2.500000e+00 (Op:0.000000e+00+Cast:2.500000e+00)
-      Cost -> SISD: 0.000000e+00 (Op:0.000000e+00+Cast:0.000000e+00)
-      => Decision: Switched to SISD (Cheaper)
-  [Phase 2] Bottom-Up Pruning & Refinement:
+>>> --- Wave Iteration 1 Start --- <<<
+  [Phase 1] Top-Down Scan
+    [TD HIT] simd.decrypt -> SISD
+  [Phase 2] Bottom-Up Scan
 
->>> --- Iteration 1 Start --- <<<
-  [Phase 1] Top-Down Greedy Allocation:
-    Eval: simd.encrypt
-      L_in=31, mustBoot=No
-      Cost -> SIMD: 0.000000e+00 (Op:0.000000e+00+Cast:0.000000e+00)
-      Cost -> SISD: 0.000000e+00 (Op:0.000000e+00+Cast:0.000000e+00)
-      => Decision: Kept SISD
-    Eval: simd.encrypt
-      L_in=31, mustBoot=No
-      Cost -> SIMD: 0.000000e+00 (Op:0.000000e+00+Cast:0.000000e+00)
-      Cost -> SISD: 0.000000e+00 (Op:0.000000e+00+Cast:0.000000e+00)
-      => Decision: Kept SISD
-    Eval: simd.encrypt
-      L_in=31, mustBoot=No
-      Cost -> SIMD: 0.000000e+00 (Op:0.000000e+00+Cast:0.000000e+00)
-      Cost -> SISD: 0.000000e+00 (Op:0.000000e+00+Cast:0.000000e+00)
-      => Decision: Kept SISD
-    Eval: simd.load
-      L_in=31, mustBoot=No
-      Cost -> SIMD: 2.500000e+00 (Op:0.000000e+00+Cast:2.500000e+00)
-      Cost -> SISD: 0.000000e+00 (Op:0.000000e+00+Cast:0.000000e+00)
-      => Decision: Kept SISD
-    Eval: simd.div
-      L_in=31, mustBoot=No
-      Cost -> SIMD: 2.500000e+00 (Op:0.000000e+00+Cast:2.500000e+00)
-      Cost -> SISD: 0.000000e+00 (Op:0.000000e+00+Cast:0.000000e+00)
-      => Decision: Kept SISD
-    Eval: simd.add
-      L_in=31, mustBoot=No
-      Cost -> SIMD: 7.600000e+00 (Op:5.100000e+00+Cast:2.500000e+00)
-      Cost -> SISD: 5.000000e-01 (Op:5.000000e-01+Cast:0.000000e+00)
-      => Decision: Kept SISD
-    Eval: simd.decrypt
-      L_in=31, mustBoot=No
-      Cost -> SIMD: 2.500000e+00 (Op:0.000000e+00+Cast:2.500000e+00)
-      Cost -> SISD: 0.000000e+00 (Op:0.000000e+00+Cast:0.000000e+00)
-      => Decision: Kept SISD
-  [Phase 2] Bottom-Up Pruning & Refinement:
+>>> --- Wave Iteration 2 Start --- <<<
+  [Phase 1] Top-Down Scan
+  [Phase 2] Bottom-Up Scan
 
->>> --- Final Converged State (@main) --- <<<
-  simd.encrypt: SISD, Level=31, Boot=NO
-  simd.encrypt: SISD, Level=31, Boot=NO
-  simd.encrypt: SISD, Level=31, Boot=NO
-  simd.load: SISD, Level=31, Boot=NO
-  simd.div: SISD, Level=31, Boot=NO
-  simd.add: SISD, Level=31, Boot=NO
-  simd.decrypt: SISD, Level=31, Boot=NO
-
-[Rewrite] Starting IR Materialization...
-  Rewriting: simd.encrypt -> SISD
-    - Successfully created replacement Op.
-  Rewriting: simd.encrypt -> SISD
-    - Successfully created replacement Op.
-  Rewriting: simd.encrypt -> SISD
-    - Successfully created replacement Op.
-  Rewriting: simd.load -> SISD
-    - Successfully created replacement Op.
-  Rewriting: simd.div -> SISD
-    - Inserting Cast: SIMD -> SISD
-    - Successfully created replacement Op.
-  Rewriting: simd.add -> SISD
-    - Inserting Cast: SIMD -> SISD
-    - Successfully created replacement Op.
-  Rewriting: simd.decrypt -> SISD
-    - Successfully created replacement Op.
-
-[Cleanup] Performing Safe Deletions...
-
-[Post-Processing] Fixing SCF For Loops Signatures...
-
-[Post-Processing] Attaching Global FlyHE Config to Module...
-  -> Mode: CROSS
-  -> Computed logn: 4 (from max plaintext count: 10)
-  -> Initial remaining_levels: 31
-  -> Bootstrapping Enabled: False
-[ModeSel] Pass Finished Successfully.
+[Post-Processing] Attaching Global FlyHE Config...
+[ModeSel] Finished. Mode=SISD
 // -----// IR Dump After ConvertToMDSELPass (mode-select) //----- //
-module attributes {he.config = {bootstrapping_enabled = false, logN = 16 : i64, logn = 4 : i64, mode = "CROSS", remaining_levels = 31 : i32}} {
+module attributes {he.config = {mode = "SISD"}} {
   llvm.mlir.global internal constant @str3("Average: %.2f\0A\00") {addr_space = 0 : i32}
   llvm.mlir.global internal constant @str2("\0A--- result ---\0A\00") {addr_space = 0 : i32}
   llvm.mlir.global internal constant @str1("Element[%zu]: %.2f\0A\00") {addr_space = 0 : i32}
@@ -602,10 +710,23 @@ module attributes {he.config = {bootstrapping_enabled = false, logN = 16 : i64, 
   }
   func.func private @rand() -> i32
   func.func @main() -> i32 {
-    %cst = arith.constant 1.000000e+01 : f64
+    %c15 = arith.constant 15 : index
+    %c14 = arith.constant 14 : index
+    %c13 = arith.constant 13 : index
+    %c12 = arith.constant 12 : index
+    %c11 = arith.constant 11 : index
     %c10 = arith.constant 10 : index
-    %c0 = arith.constant 0 : index
+    %c9 = arith.constant 9 : index
+    %c8 = arith.constant 8 : index
+    %c7 = arith.constant 7 : index
+    %c6 = arith.constant 6 : index
+    %c5 = arith.constant 5 : index
+    %c4 = arith.constant 4 : index
+    %c3 = arith.constant 3 : index
+    %c2 = arith.constant 2 : index
     %c1 = arith.constant 1 : index
+    %c0 = arith.constant 0 : index
+    %cst = arith.constant 1.600000e+01 : f64
     %cst_0 = arith.constant 0.000000e+00 : f64
     %cst_1 = arith.constant 0x41DFFFFFFFC00000 : f64
     %cst_2 = arith.constant 1.000000e+02 : f64
@@ -617,56 +738,108 @@ module attributes {he.config = {bootstrapping_enabled = false, logN = 16 : i64, 
     %c0_i32 = arith.constant 0 : i32
     %alloca = memref.alloca() : memref<1xf64>
     affine.store %4, %alloca[0] : memref<1xf64>
-    %alloc = memref.alloc() : memref<10xf64>
-    affine.for %arg0 = 0 to 10 {
-      %25 = func.call @rand() : () -> i32
-      %26 = arith.sitofp %25 : i32 to f64
-      %27 = arith.divf %26, %cst_1 : f64
-      %28 = arith.mulf %27, %cst_2 : f64
-      %29 = arith.addf %28, %cst_0 : f64
-      affine.store %29, %alloc[%arg0] : memref<10xf64>
+    %alloc = memref.alloc() : memref<16xf64>
+    affine.for %arg0 = 0 to 16 {
+      %84 = func.call @rand() : () -> i32
+      %85 = arith.sitofp %84 : i32 to f64
+      %86 = arith.divf %85, %cst_1 : f64
+      %87 = arith.mulf %86, %cst_2 : f64
+      %88 = arith.addf %87, %cst_0 : f64
+      affine.store %88, %alloc[%arg0] : memref<16xf64>
     }
-    %5 = sisd.encrypt %alloc : memref<10xf64> -> !sisd.sisdcipher<10 x i64>
-    %6 = sisd.cast_to_simd %5 : !sisd.sisdcipher<10 x i64> -> !simd.simdcipher<31 x 10 x i64>
+    %5 = sisd.encrypt %alloc : memref<16xf64> -> !sisd.sisdcipher<16 x i64>
+    %6 = builtin.unrealized_conversion_cast %5 : !sisd.sisdcipher<16 x i64> to !simd.simdcipher<31 x 16 x i64>
     %7 = sisd.encrypt %cst_0 : f64 -> !sisd.sisdcipher<1 x i64>
-    %8 = sisd.cast_to_simd %7 : !sisd.sisdcipher<1 x i64> -> !simd.simdcipher<31 x 1 x i64>
-    %9 = scf.for %arg0 = %c0 to %c10 step %c1 iter_args(%arg1 = %7) -> (!sisd.sisdcipher<1 x i64>) {
-      %25 = sisd.load %5[%arg0] : !sisd.sisdcipher<10 x i64> -> !sisd.sisdcipher<1 x i64>
-      %26 = sisd.cast_to_simd %25 : !sisd.sisdcipher<1 x i64> -> !simd.simdcipher<31 x 1 x i64>
-      %27 = simd.cast_to_sisd %arg1 : !sisd.sisdcipher<1 x i64> -> !sisd.sisdcipher<1 x i64>
-      %28 = sisd.add %27 + %25 : !sisd.sisdcipher<1 x i64>, !sisd.sisdcipher<1 x i64> -> !sisd.sisdcipher<1 x i64>
-      %29 = sisd.cast_to_simd %28 : !sisd.sisdcipher<1 x i64> -> !simd.simdcipher<31 x 1 x i64>
-      scf.yield %28 : !sisd.sisdcipher<1 x i64>
+    %8 = builtin.unrealized_conversion_cast %7 : !sisd.sisdcipher<1 x i64> to !simd.simdcipher<31 x 1 x i64>
+    %9 = sisd.load %5[%c0] : !sisd.sisdcipher<16 x i64> -> !sisd.sisdcipher<1 x i64>
+    %10 = builtin.unrealized_conversion_cast %9 : !sisd.sisdcipher<1 x i64> to !simd.simdcipher<31 x 1 x i64>
+    %11 = sisd.add %7, %9 : !sisd.sisdcipher<1 x i64>, !sisd.sisdcipher<1 x i64> -> !sisd.sisdcipher<1 x i64>
+    %12 = builtin.unrealized_conversion_cast %11 : !sisd.sisdcipher<1 x i64> to !simd.simdcipher<31 x 1 x i64>
+    %13 = sisd.load %5[%c1] : !sisd.sisdcipher<16 x i64> -> !sisd.sisdcipher<1 x i64>
+    %14 = builtin.unrealized_conversion_cast %13 : !sisd.sisdcipher<1 x i64> to !simd.simdcipher<31 x 1 x i64>
+    %15 = sisd.add %11, %13 : !sisd.sisdcipher<1 x i64>, !sisd.sisdcipher<1 x i64> -> !sisd.sisdcipher<1 x i64>
+    %16 = builtin.unrealized_conversion_cast %15 : !sisd.sisdcipher<1 x i64> to !simd.simdcipher<31 x 1 x i64>
+    %17 = sisd.load %5[%c2] : !sisd.sisdcipher<16 x i64> -> !sisd.sisdcipher<1 x i64>
+    %18 = builtin.unrealized_conversion_cast %17 : !sisd.sisdcipher<1 x i64> to !simd.simdcipher<31 x 1 x i64>
+    %19 = sisd.add %15, %17 : !sisd.sisdcipher<1 x i64>, !sisd.sisdcipher<1 x i64> -> !sisd.sisdcipher<1 x i64>
+    %20 = builtin.unrealized_conversion_cast %19 : !sisd.sisdcipher<1 x i64> to !simd.simdcipher<31 x 1 x i64>
+    %21 = sisd.load %5[%c3] : !sisd.sisdcipher<16 x i64> -> !sisd.sisdcipher<1 x i64>
+    %22 = builtin.unrealized_conversion_cast %21 : !sisd.sisdcipher<1 x i64> to !simd.simdcipher<31 x 1 x i64>
+    %23 = sisd.add %19, %21 : !sisd.sisdcipher<1 x i64>, !sisd.sisdcipher<1 x i64> -> !sisd.sisdcipher<1 x i64>
+    %24 = builtin.unrealized_conversion_cast %23 : !sisd.sisdcipher<1 x i64> to !simd.simdcipher<31 x 1 x i64>
+    %25 = sisd.load %5[%c4] : !sisd.sisdcipher<16 x i64> -> !sisd.sisdcipher<1 x i64>
+    %26 = builtin.unrealized_conversion_cast %25 : !sisd.sisdcipher<1 x i64> to !simd.simdcipher<31 x 1 x i64>
+    %27 = sisd.add %23, %25 : !sisd.sisdcipher<1 x i64>, !sisd.sisdcipher<1 x i64> -> !sisd.sisdcipher<1 x i64>
+    %28 = builtin.unrealized_conversion_cast %27 : !sisd.sisdcipher<1 x i64> to !simd.simdcipher<31 x 1 x i64>
+    %29 = sisd.load %5[%c5] : !sisd.sisdcipher<16 x i64> -> !sisd.sisdcipher<1 x i64>
+    %30 = builtin.unrealized_conversion_cast %29 : !sisd.sisdcipher<1 x i64> to !simd.simdcipher<31 x 1 x i64>
+    %31 = sisd.add %27, %29 : !sisd.sisdcipher<1 x i64>, !sisd.sisdcipher<1 x i64> -> !sisd.sisdcipher<1 x i64>
+    %32 = builtin.unrealized_conversion_cast %31 : !sisd.sisdcipher<1 x i64> to !simd.simdcipher<31 x 1 x i64>
+    %33 = sisd.load %5[%c6] : !sisd.sisdcipher<16 x i64> -> !sisd.sisdcipher<1 x i64>
+    %34 = builtin.unrealized_conversion_cast %33 : !sisd.sisdcipher<1 x i64> to !simd.simdcipher<31 x 1 x i64>
+    %35 = sisd.add %31, %33 : !sisd.sisdcipher<1 x i64>, !sisd.sisdcipher<1 x i64> -> !sisd.sisdcipher<1 x i64>
+    %36 = builtin.unrealized_conversion_cast %35 : !sisd.sisdcipher<1 x i64> to !simd.simdcipher<31 x 1 x i64>
+    %37 = sisd.load %5[%c7] : !sisd.sisdcipher<16 x i64> -> !sisd.sisdcipher<1 x i64>
+    %38 = builtin.unrealized_conversion_cast %37 : !sisd.sisdcipher<1 x i64> to !simd.simdcipher<31 x 1 x i64>
+    %39 = sisd.add %35, %37 : !sisd.sisdcipher<1 x i64>, !sisd.sisdcipher<1 x i64> -> !sisd.sisdcipher<1 x i64>
+    %40 = builtin.unrealized_conversion_cast %39 : !sisd.sisdcipher<1 x i64> to !simd.simdcipher<31 x 1 x i64>
+    %41 = sisd.load %5[%c8] : !sisd.sisdcipher<16 x i64> -> !sisd.sisdcipher<1 x i64>
+    %42 = builtin.unrealized_conversion_cast %41 : !sisd.sisdcipher<1 x i64> to !simd.simdcipher<31 x 1 x i64>
+    %43 = sisd.add %39, %41 : !sisd.sisdcipher<1 x i64>, !sisd.sisdcipher<1 x i64> -> !sisd.sisdcipher<1 x i64>
+    %44 = builtin.unrealized_conversion_cast %43 : !sisd.sisdcipher<1 x i64> to !simd.simdcipher<31 x 1 x i64>
+    %45 = sisd.load %5[%c9] : !sisd.sisdcipher<16 x i64> -> !sisd.sisdcipher<1 x i64>
+    %46 = builtin.unrealized_conversion_cast %45 : !sisd.sisdcipher<1 x i64> to !simd.simdcipher<31 x 1 x i64>
+    %47 = sisd.add %43, %45 : !sisd.sisdcipher<1 x i64>, !sisd.sisdcipher<1 x i64> -> !sisd.sisdcipher<1 x i64>
+    %48 = builtin.unrealized_conversion_cast %47 : !sisd.sisdcipher<1 x i64> to !simd.simdcipher<31 x 1 x i64>
+    %49 = sisd.load %5[%c10] : !sisd.sisdcipher<16 x i64> -> !sisd.sisdcipher<1 x i64>
+    %50 = builtin.unrealized_conversion_cast %49 : !sisd.sisdcipher<1 x i64> to !simd.simdcipher<31 x 1 x i64>
+    %51 = sisd.add %47, %49 : !sisd.sisdcipher<1 x i64>, !sisd.sisdcipher<1 x i64> -> !sisd.sisdcipher<1 x i64>
+    %52 = builtin.unrealized_conversion_cast %51 : !sisd.sisdcipher<1 x i64> to !simd.simdcipher<31 x 1 x i64>
+    %53 = sisd.load %5[%c11] : !sisd.sisdcipher<16 x i64> -> !sisd.sisdcipher<1 x i64>
+    %54 = builtin.unrealized_conversion_cast %53 : !sisd.sisdcipher<1 x i64> to !simd.simdcipher<31 x 1 x i64>
+    %55 = sisd.add %51, %53 : !sisd.sisdcipher<1 x i64>, !sisd.sisdcipher<1 x i64> -> !sisd.sisdcipher<1 x i64>
+    %56 = builtin.unrealized_conversion_cast %55 : !sisd.sisdcipher<1 x i64> to !simd.simdcipher<31 x 1 x i64>
+    %57 = sisd.load %5[%c12] : !sisd.sisdcipher<16 x i64> -> !sisd.sisdcipher<1 x i64>
+    %58 = builtin.unrealized_conversion_cast %57 : !sisd.sisdcipher<1 x i64> to !simd.simdcipher<31 x 1 x i64>
+    %59 = sisd.add %55, %57 : !sisd.sisdcipher<1 x i64>, !sisd.sisdcipher<1 x i64> -> !sisd.sisdcipher<1 x i64>
+    %60 = builtin.unrealized_conversion_cast %59 : !sisd.sisdcipher<1 x i64> to !simd.simdcipher<31 x 1 x i64>
+    %61 = sisd.load %5[%c13] : !sisd.sisdcipher<16 x i64> -> !sisd.sisdcipher<1 x i64>
+    %62 = builtin.unrealized_conversion_cast %61 : !sisd.sisdcipher<1 x i64> to !simd.simdcipher<31 x 1 x i64>
+    %63 = sisd.add %59, %61 : !sisd.sisdcipher<1 x i64>, !sisd.sisdcipher<1 x i64> -> !sisd.sisdcipher<1 x i64>
+    %64 = builtin.unrealized_conversion_cast %63 : !sisd.sisdcipher<1 x i64> to !simd.simdcipher<31 x 1 x i64>
+    %65 = sisd.load %5[%c14] : !sisd.sisdcipher<16 x i64> -> !sisd.sisdcipher<1 x i64>
+    %66 = builtin.unrealized_conversion_cast %65 : !sisd.sisdcipher<1 x i64> to !simd.simdcipher<31 x 1 x i64>
+    %67 = sisd.add %63, %65 : !sisd.sisdcipher<1 x i64>, !sisd.sisdcipher<1 x i64> -> !sisd.sisdcipher<1 x i64>
+    %68 = builtin.unrealized_conversion_cast %67 : !sisd.sisdcipher<1 x i64> to !simd.simdcipher<31 x 1 x i64>
+    %69 = sisd.load %5[%c15] : !sisd.sisdcipher<16 x i64> -> !sisd.sisdcipher<1 x i64>
+    %70 = builtin.unrealized_conversion_cast %69 : !sisd.sisdcipher<1 x i64> to !simd.simdcipher<31 x 1 x i64>
+    %71 = sisd.add %67, %69 : !sisd.sisdcipher<1 x i64>, !sisd.sisdcipher<1 x i64> -> !sisd.sisdcipher<1 x i64>
+    %72 = builtin.unrealized_conversion_cast %71 : !sisd.sisdcipher<1 x i64> to !simd.simdcipher<31 x 1 x i64>
+    %73 = sisd.div %71, %cst : !sisd.sisdcipher<1 x i64>, f64 -> !sisd.sisdcipher<1 x i64>
+    %74 = builtin.unrealized_conversion_cast %73 : !sisd.sisdcipher<1 x i64> to !simd.simdcipher<30 x 1 x i64>
+    %75 = sisd.decrypt %73 : !sisd.sisdcipher<1 x i64> -> memref<1xf64>
+    memref.copy %75, %alloca : memref<1xf64> to memref<1xf64>
+    %76 = llvm.getelementptr %3[0, 0] : (!llvm.ptr) -> !llvm.ptr, !llvm.array<14 x i8>
+    %77 = llvm.call @printf(%76) vararg(!llvm.func<i32 (ptr, ...)>) : (!llvm.ptr) -> i32
+    %78 = llvm.getelementptr %2[0, 0] : (!llvm.ptr) -> !llvm.ptr, !llvm.array<20 x i8>
+    affine.for %arg0 = 0 to 16 {
+      %84 = arith.index_cast %arg0 : index to i64
+      %85 = affine.load %alloc[%arg0] : memref<16xf64>
+      %86 = llvm.call @printf(%78, %84, %85) vararg(!llvm.func<i32 (ptr, ...)>) : (!llvm.ptr, i64, f64) -> i32
     }
-    %10 = sisd.cast_to_simd %9 : !sisd.sisdcipher<1 x i64> -> !simd.simdcipher<31 x 1 x i64>
-    %11 = sisd.encrypt %cst : f64 -> !sisd.sisdcipher<1 x i64>
-    %12 = sisd.cast_to_simd %11 : !sisd.sisdcipher<1 x i64> -> !simd.simdcipher<31 x 1 x i64>
-    %13 = simd.cast_to_sisd %10 : !simd.simdcipher<31 x 1 x i64> -> !sisd.sisdcipher<1 x i64>
-    %14 = sisd.div %13, %11 : !sisd.sisdcipher<1 x i64>, !sisd.sisdcipher<1 x i64> -> !sisd.sisdcipher<1 x i64>
-    %15 = sisd.cast_to_simd %14 : !sisd.sisdcipher<1 x i64> -> !simd.simdcipher<30 x 1 x i64>
-    %16 = sisd.decrypt %14 : !sisd.sisdcipher<1 x i64> -> memref<1xf64>
-    memref.copy %16, %alloca : memref<1xf64> to memref<1xf64>
-    %17 = llvm.getelementptr %3[0, 0] : (!llvm.ptr) -> !llvm.ptr, !llvm.array<14 x i8>
-    %18 = llvm.call @printf(%17) vararg(!llvm.func<i32 (ptr, ...)>) : (!llvm.ptr) -> i32
-    %19 = llvm.getelementptr %2[0, 0] : (!llvm.ptr) -> !llvm.ptr, !llvm.array<20 x i8>
-    affine.for %arg0 = 0 to 10 {
-      %25 = arith.index_cast %arg0 : index to i64
-      %26 = affine.load %alloc[%arg0] : memref<10xf64>
-      %27 = llvm.call @printf(%19, %25, %26) vararg(!llvm.func<i32 (ptr, ...)>) : (!llvm.ptr, i64, f64) -> i32
-    }
-    %20 = llvm.getelementptr %1[0, 0] : (!llvm.ptr) -> !llvm.ptr, !llvm.array<17 x i8>
-    %21 = llvm.call @printf(%20) vararg(!llvm.func<i32 (ptr, ...)>) : (!llvm.ptr) -> i32
-    %22 = llvm.getelementptr %0[0, 0] : (!llvm.ptr) -> !llvm.ptr, !llvm.array<15 x i8>
-    %23 = affine.load %alloca[0] : memref<1xf64>
-    %24 = llvm.call @printf(%22, %23) vararg(!llvm.func<i32 (ptr, ...)>) : (!llvm.ptr, f64) -> i32
-    memref.dealloc %alloc : memref<10xf64>
+    %79 = llvm.getelementptr %1[0, 0] : (!llvm.ptr) -> !llvm.ptr, !llvm.array<17 x i8>
+    %80 = llvm.call @printf(%79) vararg(!llvm.func<i32 (ptr, ...)>) : (!llvm.ptr) -> i32
+    %81 = llvm.getelementptr %0[0, 0] : (!llvm.ptr) -> !llvm.ptr, !llvm.array<15 x i8>
+    %82 = affine.load %alloca[0] : memref<1xf64>
+    %83 = llvm.call @printf(%81, %82) vararg(!llvm.func<i32 (ptr, ...)>) : (!llvm.ptr, f64) -> i32
+    memref.dealloc %alloc : memref<16xf64>
     return %c0_i32 : i32
   }
 }
 
 
 // -----// IR Dump After Canonicalizer (canonicalize) //----- //
-module attributes {he.config = {bootstrapping_enabled = false, logN = 16 : i64, logn = 4 : i64, mode = "CROSS", remaining_levels = 31 : i32}} {
+module attributes {he.config = {mode = "SISD"}} {
   llvm.mlir.global internal constant @str3("Average: %.2f\0A\00") {addr_space = 0 : i32}
   llvm.mlir.global internal constant @str2("\0A--- result ---\0A\00") {addr_space = 0 : i32}
   llvm.mlir.global internal constant @str1("Element[%zu]: %.2f\0A\00") {addr_space = 0 : i32}
@@ -689,10 +862,23 @@ module attributes {he.config = {bootstrapping_enabled = false, logN = 16 : i64, 
   }
   func.func private @rand() -> i32
   func.func @main() -> i32 {
-    %cst = arith.constant 1.000000e+01 : f64
+    %c15 = arith.constant 15 : index
+    %c14 = arith.constant 14 : index
+    %c13 = arith.constant 13 : index
+    %c12 = arith.constant 12 : index
+    %c11 = arith.constant 11 : index
     %c10 = arith.constant 10 : index
-    %c0 = arith.constant 0 : index
+    %c9 = arith.constant 9 : index
+    %c8 = arith.constant 8 : index
+    %c7 = arith.constant 7 : index
+    %c6 = arith.constant 6 : index
+    %c5 = arith.constant 5 : index
+    %c4 = arith.constant 4 : index
+    %c3 = arith.constant 3 : index
+    %c2 = arith.constant 2 : index
     %c1 = arith.constant 1 : index
+    %c0 = arith.constant 0 : index
+    %cst = arith.constant 1.600000e+01 : f64
     %cst_0 = arith.constant 0.000000e+00 : f64
     %cst_1 = arith.constant 0x41DFFFFFFFC00000 : f64
     %cst_2 = arith.constant 1.000000e+02 : f64
@@ -704,40 +890,66 @@ module attributes {he.config = {bootstrapping_enabled = false, logN = 16 : i64, 
     %c0_i32 = arith.constant 0 : i32
     %alloca = memref.alloca() : memref<1xf64>
     affine.store %4, %alloca[0] : memref<1xf64>
-    %alloc = memref.alloc() : memref<10xf64>
-    affine.for %arg0 = 0 to 10 {
-      %19 = func.call @rand() : () -> i32
-      %20 = arith.sitofp %19 : i32 to f64
-      %21 = arith.divf %20, %cst_1 : f64
-      %22 = arith.mulf %21, %cst_2 : f64
-      %23 = arith.addf %22, %cst_0 : f64
-      affine.store %23, %alloc[%arg0] : memref<10xf64>
+    %alloc = memref.alloc() : memref<16xf64>
+    affine.for %arg0 = 0 to 16 {
+      %49 = func.call @rand() : () -> i32
+      %50 = arith.sitofp %49 : i32 to f64
+      %51 = arith.divf %50, %cst_1 : f64
+      %52 = arith.mulf %51, %cst_2 : f64
+      %53 = arith.addf %52, %cst_0 : f64
+      affine.store %53, %alloc[%arg0] : memref<16xf64>
     }
-    %5 = sisd.encrypt %alloc : memref<10xf64> -> !sisd.sisdcipher<10 x i64>
+    %5 = sisd.encrypt %alloc : memref<16xf64> -> !sisd.sisdcipher<16 x i64>
     %6 = sisd.encrypt %cst_0 : f64 -> !sisd.sisdcipher<1 x i64>
-    %7 = scf.for %arg0 = %c0 to %c10 step %c1 iter_args(%arg1 = %6) -> (!sisd.sisdcipher<1 x i64>) {
-      %19 = sisd.load %5[%arg0] : !sisd.sisdcipher<10 x i64> -> !sisd.sisdcipher<1 x i64>
-      %20 = sisd.add %arg1 + %19 : !sisd.sisdcipher<1 x i64>, !sisd.sisdcipher<1 x i64> -> !sisd.sisdcipher<1 x i64>
-      scf.yield %20 : !sisd.sisdcipher<1 x i64>
+    %7 = sisd.load %5[%c0] : !sisd.sisdcipher<16 x i64> -> !sisd.sisdcipher<1 x i64>
+    %8 = sisd.add %6, %7 : !sisd.sisdcipher<1 x i64>, !sisd.sisdcipher<1 x i64> -> !sisd.sisdcipher<1 x i64>
+    %9 = sisd.load %5[%c1] : !sisd.sisdcipher<16 x i64> -> !sisd.sisdcipher<1 x i64>
+    %10 = sisd.add %8, %9 : !sisd.sisdcipher<1 x i64>, !sisd.sisdcipher<1 x i64> -> !sisd.sisdcipher<1 x i64>
+    %11 = sisd.load %5[%c2] : !sisd.sisdcipher<16 x i64> -> !sisd.sisdcipher<1 x i64>
+    %12 = sisd.add %10, %11 : !sisd.sisdcipher<1 x i64>, !sisd.sisdcipher<1 x i64> -> !sisd.sisdcipher<1 x i64>
+    %13 = sisd.load %5[%c3] : !sisd.sisdcipher<16 x i64> -> !sisd.sisdcipher<1 x i64>
+    %14 = sisd.add %12, %13 : !sisd.sisdcipher<1 x i64>, !sisd.sisdcipher<1 x i64> -> !sisd.sisdcipher<1 x i64>
+    %15 = sisd.load %5[%c4] : !sisd.sisdcipher<16 x i64> -> !sisd.sisdcipher<1 x i64>
+    %16 = sisd.add %14, %15 : !sisd.sisdcipher<1 x i64>, !sisd.sisdcipher<1 x i64> -> !sisd.sisdcipher<1 x i64>
+    %17 = sisd.load %5[%c5] : !sisd.sisdcipher<16 x i64> -> !sisd.sisdcipher<1 x i64>
+    %18 = sisd.add %16, %17 : !sisd.sisdcipher<1 x i64>, !sisd.sisdcipher<1 x i64> -> !sisd.sisdcipher<1 x i64>
+    %19 = sisd.load %5[%c6] : !sisd.sisdcipher<16 x i64> -> !sisd.sisdcipher<1 x i64>
+    %20 = sisd.add %18, %19 : !sisd.sisdcipher<1 x i64>, !sisd.sisdcipher<1 x i64> -> !sisd.sisdcipher<1 x i64>
+    %21 = sisd.load %5[%c7] : !sisd.sisdcipher<16 x i64> -> !sisd.sisdcipher<1 x i64>
+    %22 = sisd.add %20, %21 : !sisd.sisdcipher<1 x i64>, !sisd.sisdcipher<1 x i64> -> !sisd.sisdcipher<1 x i64>
+    %23 = sisd.load %5[%c8] : !sisd.sisdcipher<16 x i64> -> !sisd.sisdcipher<1 x i64>
+    %24 = sisd.add %22, %23 : !sisd.sisdcipher<1 x i64>, !sisd.sisdcipher<1 x i64> -> !sisd.sisdcipher<1 x i64>
+    %25 = sisd.load %5[%c9] : !sisd.sisdcipher<16 x i64> -> !sisd.sisdcipher<1 x i64>
+    %26 = sisd.add %24, %25 : !sisd.sisdcipher<1 x i64>, !sisd.sisdcipher<1 x i64> -> !sisd.sisdcipher<1 x i64>
+    %27 = sisd.load %5[%c10] : !sisd.sisdcipher<16 x i64> -> !sisd.sisdcipher<1 x i64>
+    %28 = sisd.add %26, %27 : !sisd.sisdcipher<1 x i64>, !sisd.sisdcipher<1 x i64> -> !sisd.sisdcipher<1 x i64>
+    %29 = sisd.load %5[%c11] : !sisd.sisdcipher<16 x i64> -> !sisd.sisdcipher<1 x i64>
+    %30 = sisd.add %28, %29 : !sisd.sisdcipher<1 x i64>, !sisd.sisdcipher<1 x i64> -> !sisd.sisdcipher<1 x i64>
+    %31 = sisd.load %5[%c12] : !sisd.sisdcipher<16 x i64> -> !sisd.sisdcipher<1 x i64>
+    %32 = sisd.add %30, %31 : !sisd.sisdcipher<1 x i64>, !sisd.sisdcipher<1 x i64> -> !sisd.sisdcipher<1 x i64>
+    %33 = sisd.load %5[%c13] : !sisd.sisdcipher<16 x i64> -> !sisd.sisdcipher<1 x i64>
+    %34 = sisd.add %32, %33 : !sisd.sisdcipher<1 x i64>, !sisd.sisdcipher<1 x i64> -> !sisd.sisdcipher<1 x i64>
+    %35 = sisd.load %5[%c14] : !sisd.sisdcipher<16 x i64> -> !sisd.sisdcipher<1 x i64>
+    %36 = sisd.add %34, %35 : !sisd.sisdcipher<1 x i64>, !sisd.sisdcipher<1 x i64> -> !sisd.sisdcipher<1 x i64>
+    %37 = sisd.load %5[%c15] : !sisd.sisdcipher<16 x i64> -> !sisd.sisdcipher<1 x i64>
+    %38 = sisd.add %36, %37 : !sisd.sisdcipher<1 x i64>, !sisd.sisdcipher<1 x i64> -> !sisd.sisdcipher<1 x i64>
+    %39 = sisd.div %38, %cst : !sisd.sisdcipher<1 x i64>, f64 -> !sisd.sisdcipher<1 x i64>
+    %40 = sisd.decrypt %39 : !sisd.sisdcipher<1 x i64> -> memref<1xf64>
+    memref.copy %40, %alloca : memref<1xf64> to memref<1xf64>
+    %41 = llvm.getelementptr %3[0, 0] : (!llvm.ptr) -> !llvm.ptr, !llvm.array<14 x i8>
+    %42 = llvm.call @printf(%41) vararg(!llvm.func<i32 (ptr, ...)>) : (!llvm.ptr) -> i32
+    %43 = llvm.getelementptr %2[0, 0] : (!llvm.ptr) -> !llvm.ptr, !llvm.array<20 x i8>
+    affine.for %arg0 = 0 to 16 {
+      %49 = arith.index_cast %arg0 : index to i64
+      %50 = affine.load %alloc[%arg0] : memref<16xf64>
+      %51 = llvm.call @printf(%43, %49, %50) vararg(!llvm.func<i32 (ptr, ...)>) : (!llvm.ptr, i64, f64) -> i32
     }
-    %8 = sisd.encrypt %cst : f64 -> !sisd.sisdcipher<1 x i64>
-    %9 = sisd.div %7, %8 : !sisd.sisdcipher<1 x i64>, !sisd.sisdcipher<1 x i64> -> !sisd.sisdcipher<1 x i64>
-    %10 = sisd.decrypt %9 : !sisd.sisdcipher<1 x i64> -> memref<1xf64>
-    memref.copy %10, %alloca : memref<1xf64> to memref<1xf64>
-    %11 = llvm.getelementptr %3[0, 0] : (!llvm.ptr) -> !llvm.ptr, !llvm.array<14 x i8>
-    %12 = llvm.call @printf(%11) vararg(!llvm.func<i32 (ptr, ...)>) : (!llvm.ptr) -> i32
-    %13 = llvm.getelementptr %2[0, 0] : (!llvm.ptr) -> !llvm.ptr, !llvm.array<20 x i8>
-    affine.for %arg0 = 0 to 10 {
-      %19 = arith.index_cast %arg0 : index to i64
-      %20 = affine.load %alloc[%arg0] : memref<10xf64>
-      %21 = llvm.call @printf(%13, %19, %20) vararg(!llvm.func<i32 (ptr, ...)>) : (!llvm.ptr, i64, f64) -> i32
-    }
-    %14 = llvm.getelementptr %1[0, 0] : (!llvm.ptr) -> !llvm.ptr, !llvm.array<17 x i8>
-    %15 = llvm.call @printf(%14) vararg(!llvm.func<i32 (ptr, ...)>) : (!llvm.ptr) -> i32
-    %16 = llvm.getelementptr %0[0, 0] : (!llvm.ptr) -> !llvm.ptr, !llvm.array<15 x i8>
-    %17 = affine.load %alloca[0] : memref<1xf64>
-    %18 = llvm.call @printf(%16, %17) vararg(!llvm.func<i32 (ptr, ...)>) : (!llvm.ptr, f64) -> i32
-    memref.dealloc %alloc : memref<10xf64>
+    %44 = llvm.getelementptr %1[0, 0] : (!llvm.ptr) -> !llvm.ptr, !llvm.array<17 x i8>
+    %45 = llvm.call @printf(%44) vararg(!llvm.func<i32 (ptr, ...)>) : (!llvm.ptr) -> i32
+    %46 = llvm.getelementptr %0[0, 0] : (!llvm.ptr) -> !llvm.ptr, !llvm.array<15 x i8>
+    %47 = affine.load %alloca[0] : memref<1xf64>
+    %48 = llvm.call @printf(%46, %47) vararg(!llvm.func<i32 (ptr, ...)>) : (!llvm.ptr, f64) -> i32
+    memref.dealloc %alloc : memref<16xf64>
     return %c0_i32 : i32
   }
 }
