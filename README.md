@@ -155,10 +155,11 @@ cd Libra
 
 After these three steps, the final generated code is the `.cu` file.
 
-### 2. Build the generated code
+### 2. Building the Generated Code
 
-The generated CUDA C++ code is compiled together with the foundational FHE library `FlyHE`
-to produce executables.
+The backend CUDA FHE library relies on our open-source project [`FlyHE`](https://github.com/sunnchioo/FlyHE.git).
+
+The generated CUDA C++ code can be compiled together with `FlyHE` to produce the final executable.
 
 ```bash
 cd Libra/HElib/FlyHE
@@ -168,7 +169,10 @@ cmake ..
 make -j
 ```
 
-The build artifacts (executables/libraries) will be produced under the `build` directory.
+## Future Work
+
+- Provide additional examples and tutorials to further improve usability and accessibility.
+- Expand compatibility with other FHE backend libraries.
 
 ## Appendix
 
