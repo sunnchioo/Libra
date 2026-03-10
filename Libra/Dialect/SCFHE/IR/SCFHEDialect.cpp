@@ -259,6 +259,20 @@ struct RefineDecryptShape : public OpRewritePattern<SCFHEDecryptOp> {
     }
 };
 
+struct ReduceAddLoadFold : public OpRewritePattern<SCFHEReduceAddOp> {
+    using OpRewritePattern::OpRewritePattern;
+    LogicalResult matchAndRewrite(SCFHEReduceAddOp op, PatternRewriter& rewriter) const override {
+        Value operand = op.getOperand();
+        if (auto castOp = operand.getDefiningOp<SCFHECastOp>()) {
+            rewriter.modifyOpInPlace(op, [&]() {
+                op.setOperand(castOp.getOperand());
+            });
+            return success();
+        }
+        return failure();
+    }
+};
+
 // =============================================================================
 // 3. 注册 Canonicalization Patterns
 // =============================================================================
@@ -291,6 +305,11 @@ void SCFHEDivOp::getCanonicalizationPatterns(RewritePatternSet& results, MLIRCon
 // 为 Decrypt 注册
 void SCFHEDecryptOp::getCanonicalizationPatterns(RewritePatternSet& results, MLIRContext* context) {
     results.add<RefineDecryptShape>(context);
+}
+
+// 为 ReduceAdd 注册
+void SCFHEReduceAddOp::getCanonicalizationPatterns(RewritePatternSet& results, MLIRContext* context) {
+    results.add<ReduceAddLoadFold>(context);
 }
 
 // =============================================================================

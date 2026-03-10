@@ -1,37 +1,25 @@
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/IR/Builders.h"
-#include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/Pass/Pass.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
-#include "mlir/IR/Verifier.h"
 
 #include "mlir/Dialect/SCF/IR/SCF.h"
-#include "mlir/Dialect/Affine/IR/AffineOps.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
-#include "mlir/Dialect/Arith/IR/Arith.h"
 
-#include "llvm/ADT/DenseMap.h"
-#include "llvm/ADT/StringMap.h"
-#include "llvm/Support/JSON.h"
-#include "llvm/Support/raw_ostream.h"
-#include "llvm/Support/MemoryBuffer.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/Debug.h"
 
 #include "ModeSelectPass.h"
 #include "SIMDOps.h"
 #include "SISDOps.h"
-#include "SIMDCommon.h"
 
-#include <algorithm>
-#include <limits>
+#include "CostModel.h"
+#include "ModeRewriter.h"
+
 #include <queue>
-#include <set>
 #include <vector>
 #include <string>
-#include <memory>
-#include <cmath>
 
 #define DEBUG_TYPE "mode-select"
 
@@ -51,135 +39,7 @@ namespace mlir::libra::mdsel {
 
     namespace {
 
-        enum class Mode { SIMD,
-                          SISD };
-        constexpr double INF_COST = 1e15;
-        constexpr int MAX_SIMD_LEVEL = 31;
-        constexpr int BOOT_LEVEL = 17;
-        constexpr int SLIM_BOOT_TRIGGER = 3;
-        // 既然有了蔓延机制，迭代次数不需要太多了，但保留足够余量
         constexpr int MAX_WAVE_ITERATIONS = 100;
-
-        struct CostModel {
-            llvm::StringMap<llvm::DenseMap<int64_t, double>> costTable;
-
-            int64_t getLogCount(int64_t count) const {
-                if (count <= 1)
-                    return 0;
-                return static_cast<int64_t>(std::ceil(std::log2(static_cast<double>(count))));
-            }
-
-            CostModel(StringRef jsonFilename) {
-                auto fileOrErr = llvm::MemoryBuffer::getFile(jsonFilename);
-                if (auto ec = fileOrErr.getError()) {
-                    LLVM_DEBUG(llvm::dbgs() << "[ModeSel] Error opening cost file: " << ec.message() << "\n");
-                    return;
-                }
-                llvm::Expected<llvm::json::Value> rootOrErr = llvm::json::parse(fileOrErr.get()->getBuffer());
-                if (!rootOrErr)
-                    return;
-                auto* obj = rootOrErr->getAsObject();
-                if (!obj)
-                    return;
-                auto* costs = obj->getObject("costs");
-                if (!costs)
-                    return;
-
-                for (auto& modePair : *costs) {
-                    StringRef mode = modePair.first;
-                    auto* modeObj = modePair.second.getAsObject();
-                    if (!modeObj)
-                        continue;
-                    for (auto& opPair : *modeObj) {
-                        StringRef opname = opPair.first;
-                        auto* opObj = opPair.second.getAsObject();
-                        if (!opObj)
-                            continue;
-                        if (auto* lat = opObj->getObject("latency")) {
-                            std::string key = (mode + "." + opname).str();
-                            for (auto& kv : *lat) {
-                                long long idx = 0;
-                                if (!llvm::StringRef(kv.first).getAsInteger(10, idx) && kv.second.getAsNumber()) {
-                                    costTable[key][idx] = *kv.second.getAsNumber();
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-
-            double lookup(StringRef key, int64_t idx) const {
-                auto it = costTable.find(key);
-                if (it == costTable.end())
-                    return INF_COST;
-                auto jt = it->second.find(idx);
-                if (jt == it->second.end()) {
-                    if (!it->second.empty())
-                        return it->second.begin()->second;
-                    return INF_COST;
-                }
-                return jt->second;
-            }
-
-            std::string getOpKey(Operation* op, Mode m) const {
-                std::string prefix = (m == Mode::SIMD) ? "simd." : "sisd.";
-                if (isa<simd::SIMDAddOp, sisd::SISDAddOp>(op))
-                    return prefix + "add";
-                if (isa<simd::SIMDSubOp, sisd::SISDSubOp>(op))
-                    return prefix + "sub";
-                if (isa<simd::SIMDMultOp>(op))
-                    return prefix + "mult";
-                if (isa<simd::SIMDMinOp, sisd::SISDMinOp>(op))
-                    return prefix + "min";
-                if (isa<simd::SIMDEncryptOp, sisd::SISDEncryptOp>(op))
-                    return prefix + "encrypt";
-                if (isa<simd::SIMDDecryptOp, sisd::SISDDecryptOp>(op))
-                    return prefix + "decrypt";
-                if (isa<simd::SIMDDivOp, sisd::SISDDivOp>(op))
-                    return prefix + "div";
-                if (isa<simd::SIMDLoadOp, sisd::SISDLoadOp>(op))
-                    return prefix + "load";
-                if (isa<simd::SIMDStoreOp, sisd::SISDStoreOp>(op))
-                    return prefix + "store";
-                return "";
-            }
-
-            double getOpCost(Operation* op, Mode m, int64_t param) const {
-                if (isa<simd::SIMDMultOp>(op) && m == Mode::SISD)
-                    return INF_COST;
-                std::string key = getOpKey(op, m);
-                if (key.empty())
-                    return 0.0;
-                int64_t lookupIndex = 0;
-                if (m == Mode::SIMD) {
-                    if (isa<simd::SIMDMinOp>(op))
-                        lookupIndex = getLogCount(param);
-                    else
-                        lookupIndex = param;
-                } else {
-                    lookupIndex = getLogCount(param);
-                }
-                return lookup(key, lookupIndex);
-            }
-
-            double getBootCost(int64_t vectorCount) const {
-                return lookup("simd.boot", getLogCount(vectorCount));
-            }
-
-            double getCastCost(Mode from, Mode to, int64_t vectorCount) const {
-                if (from == to)
-                    return 0.0;
-                std::string key = (from == Mode::SIMD) ? "simd.cast_to_sisd" : "sisd.cast_to_simd";
-                return lookup(key, getLogCount(vectorCount));
-            }
-        };
-
-        struct NodeInfo {
-            Mode mode = Mode::SIMD;
-            int finalLevel = MAX_SIMD_LEVEL;
-            bool triggerBoot = false;
-            int64_t vectorCount = 8;
-        };
 
         class ConvertToModeSelectIR : public impl::ConvertToMDSELPassBase<ConvertToModeSelectIR> {
         public:
@@ -220,20 +80,13 @@ namespace mlir::libra::mdsel {
                     for (Operation* op : ops) {
                         for (Value v : op->getOperands()) {
                             Operation* defOp = nullptr;
-
-                            // 1. 常规情况：操作数由另一个算子定义
                             if (auto* def = v.getDefiningOp()) {
                                 defOp = def;
-                            }
-                            // 2. [修复] 特殊情况：操作数是循环参数 (BlockArgument)
-                            else if (auto arg = dyn_cast<BlockArgument>(v)) {
-                                // 获取 Block 的拥有者 (即 scf.for)
+                            } else if (auto arg = dyn_cast<BlockArgument>(v)) {
                                 if (auto* ownerOp = arg.getOwner()->getParentOp()) {
                                     defOp = ownerOp;
                                 }
                             }
-
-                            // 建立连接
                             if (defOp && std::find(ops.begin(), ops.end(), defOp) != ops.end()) {
                                 preds[op].push_back(defOp);
                                 succs[defOp].push_back(op);
@@ -274,8 +127,6 @@ namespace mlir::libra::mdsel {
                         info[op].vectorCount = count;
                     }
 
-                    // --- 核心工具函数：状态更新与代价评估 ---
-
                     auto updateNodeState = [&](Operation* op) {
                         auto& nd = info[op];
                         int l_in = MAX_SIMD_LEVEL;
@@ -298,22 +149,18 @@ namespace mlir::libra::mdsel {
                     auto calcTotalCost = [&](Operation* op, Mode targetMode) -> double {
                         auto& nd = info[op];
                         int64_t vecCnt = nd.vectorCount;
-
                         double opCost = 0.0;
+
                         if (targetMode == Mode::SIMD) {
                             int l_in = MAX_SIMD_LEVEL;
                             for (auto* p : preds[op])
                                 l_in = std::min(l_in, info[p].finalLevel);
                             bool mustBoot = (l_in <= SLIM_BOOT_TRIGGER);
-
-                            if (isa<simd::SIMDMinOp>(op))
-                                opCost = costModel.getOpCost(op, Mode::SIMD, vecCnt);
-                            else
-                                opCost = costModel.getOpCost(op, Mode::SIMD, l_in);
+                            opCost = costModel.getOpCost(op, Mode::SIMD, l_in, vecCnt);
                             if (mustBoot)
                                 opCost += costModel.getBootCost(vecCnt);
                         } else {
-                            opCost = costModel.getOpCost(op, Mode::SISD, vecCnt);
+                            opCost = costModel.getOpCost(op, Mode::SISD, 0, vecCnt);
                         }
 
                         double castCost = 0.0;
@@ -321,16 +168,13 @@ namespace mlir::libra::mdsel {
                             castCost += costModel.getCastCost(info[p].mode, targetMode, info[p].vectorCount);
                         }
 
-                        // [新增日志] 详细打印 Phase 1 / Propagation 的计算细节
                         LLVM_DEBUG(llvm::dbgs() << "      Cost(" << getOpName(op) << ", "
                                                 << (targetMode == Mode::SIMD ? "SIMD" : "SISD") << ") = "
                                                 << "Op(" << opCost << ") + CastIn(" << castCost << ") = "
                                                 << (opCost + castCost) << "\n");
-
                         return opCost + castCost;
                     };
 
-                    // --- 优化1: 向下蔓延 SISD (当上游变 SISD 后，看看下游是不是也该变) ---
                     auto propagateSISDDown = [&](Operation* startOp) {
                         std::queue<Operation*> q;
                         q.push(startOp);
@@ -343,9 +187,8 @@ namespace mlir::libra::mdsel {
                             for (auto* child : succs[curr]) {
                                 auto& childNd = info[child];
                                 if (childNd.mode == Mode::SISD)
-                                    continue; // 已经是 SISD 了，不用管
+                                    continue;
 
-                                // 严格检查：如果 Child 变 SISD，会不会更便宜？
                                 double costAsSIMD = calcTotalCost(child, Mode::SIMD);
                                 double costAsSISD = calcTotalCost(child, Mode::SISD);
 
@@ -353,13 +196,12 @@ namespace mlir::libra::mdsel {
                                     LLVM_DEBUG(llvm::dbgs() << "        -> Child " << getOpName(child) << " flips to SISD (Cascade)\n");
                                     childNd.mode = Mode::SISD;
                                     updateNodeState(child);
-                                    q.push(child); // 继续向下推
+                                    q.push(child);
                                 }
                             }
                         }
                     };
 
-                    // --- 优化2: 向上蔓延 SIMD (当下游变 SIMD 后，看看上游是不是也该变) ---
                     auto propagateSIMDUp = [&](Operation* startOp) {
                         std::queue<Operation*> q;
                         q.push(startOp);
@@ -372,28 +214,20 @@ namespace mlir::libra::mdsel {
                             for (auto* p : preds[curr]) {
                                 auto& pNd = info[p];
                                 if (pNd.mode == Mode::SIMD)
-                                    continue; // 已经是 SIMD 了
+                                    continue;
 
-                                // 评估 Parent: 现在变成 SIMD 划算吗？
-                                // 这里主要看 output cast cost 是否减少
-                                double costSelf_SIMD = 0.0;
-                                // 估算 SIMD 自身成本
                                 int l_in = MAX_SIMD_LEVEL;
                                 for (auto* pp : preds[p])
                                     l_in = std::min(l_in, info[pp].finalLevel);
                                 bool mustBoot = (l_in <= SLIM_BOOT_TRIGGER);
-                                if (isa<simd::SIMDMinOp>(p))
-                                    costSelf_SIMD = costModel.getOpCost(p, Mode::SIMD, pNd.vectorCount);
-                                else
-                                    costSelf_SIMD = costModel.getOpCost(p, Mode::SIMD, l_in);
+
+                                double costSelf_SIMD = costModel.getOpCost(p, Mode::SIMD, l_in, pNd.vectorCount);
                                 if (mustBoot)
                                     costSelf_SIMD += costModel.getBootCost(pNd.vectorCount);
-
-                                double costSelf_SISD = costModel.getOpCost(p, Mode::SISD, pNd.vectorCount);
+                                double costSelf_SISD = costModel.getOpCost(p, Mode::SISD, 0, pNd.vectorCount);
 
                                 double cOut_SIMD = 0.0, cOut_SISD = 0.0;
                                 for (auto* child : succs[p]) {
-                                    // 注意：此时 child (即 curr) 已经是 SIMD 了
                                     cOut_SIMD += costModel.getCastCost(Mode::SIMD, info[child].mode, pNd.vectorCount);
                                     cOut_SISD += costModel.getCastCost(Mode::SISD, info[child].mode, pNd.vectorCount);
                                 }
@@ -405,13 +239,12 @@ namespace mlir::libra::mdsel {
                                     LLVM_DEBUG(llvm::dbgs() << "        -> Parent " << getOpName(p) << " flips to SIMD (Cascade)\n");
                                     pNd.mode = Mode::SIMD;
                                     updateNodeState(p);
-                                    q.push(p); // 继续向上推
+                                    q.push(p);
                                 }
                             }
                         }
                     };
 
-                    // [新增] 优化3: 向上蔓延 SISD (当下游变 SISD 后，通知上游也变 SISD 以消除 Output Cast)
                     auto propagateSISDUp = [&](Operation* startOp) {
                         std::queue<Operation*> q;
                         q.push(startOp);
@@ -424,28 +257,21 @@ namespace mlir::libra::mdsel {
                             for (auto* p : preds[curr]) {
                                 auto& pNd = info[p];
                                 if (pNd.mode == Mode::SISD)
-                                    continue; // 已经是 SISD 了
+                                    continue;
 
-                                // 评估 Parent: 现在变成 SISD 划算吗？
-                                // 重点：Curr 已经变成 SISD 了，Parent 如果变 SISD，Output Cast 就会变成 0
-                                double cSelf_SISD = costModel.getOpCost(p, Mode::SISD, pNd.vectorCount);
+                                double cSelf_SISD = costModel.getOpCost(p, Mode::SISD, 0, pNd.vectorCount);
 
                                 int l_in = MAX_SIMD_LEVEL;
                                 for (auto* pp : preds[p])
                                     l_in = std::min(l_in, info[pp].finalLevel);
                                 bool mustBoot = (l_in <= SLIM_BOOT_TRIGGER);
-                                double cSelf_SIMD = 0.0;
-                                if (isa<simd::SIMDMinOp>(p))
-                                    cSelf_SIMD = costModel.getOpCost(p, Mode::SIMD, pNd.vectorCount);
-                                else
-                                    cSelf_SIMD = costModel.getOpCost(p, Mode::SIMD, l_in);
+
+                                double cSelf_SIMD = costModel.getOpCost(p, Mode::SIMD, l_in, pNd.vectorCount);
                                 if (mustBoot)
                                     cSelf_SIMD += costModel.getBootCost(pNd.vectorCount);
 
                                 double cOut_SIMD = 0.0, cOut_SISD = 0.0;
                                 for (auto* child : succs[p]) {
-                                    // 计算输出转换成本
-                                    // 注意：此时 child (即 curr) 已经是 SISD 了
                                     cOut_SIMD += costModel.getCastCost(Mode::SIMD, info[child].mode, pNd.vectorCount);
                                     cOut_SISD += costModel.getCastCost(Mode::SISD, info[child].mode, pNd.vectorCount);
                                 }
@@ -457,7 +283,7 @@ namespace mlir::libra::mdsel {
                                     LLVM_DEBUG(llvm::dbgs() << "        -> Parent " << getOpName(p) << " flips to SISD (Cascade Up)\n");
                                     pNd.mode = Mode::SISD;
                                     updateNodeState(p);
-                                    q.push(p); // 继续向上推
+                                    q.push(p);
                                 }
                             }
                         }
@@ -471,12 +297,9 @@ namespace mlir::libra::mdsel {
                         changed = false;
                         iter++;
 
-                        // === Phase 1: Top-Down (主要负责触发 SISD 蔓延) ===
                         LLVM_DEBUG(llvm::dbgs() << "  [Phase 1] Top-Down Scan\n");
                         for (Operation* op : topo) {
                             auto& nd = info[op];
-
-                            // [新增] 显示当前 Op
                             LLVM_DEBUG(llvm::dbgs() << "    [TD Eval] " << getOpName(op) << ":\n");
 
                             double total_SIMD = calcTotalCost(op, Mode::SIMD);
@@ -487,34 +310,26 @@ namespace mlir::libra::mdsel {
                                 newMode = Mode::SISD;
                             else if (total_SIMD < total_SISD)
                                 newMode = Mode::SIMD;
-                            // else Inertia
 
                             if (newMode != nd.mode) {
                                 LLVM_DEBUG(llvm::dbgs() << "    [TD HIT] " << getOpName(op) << " -> " << (newMode == Mode::SIMD ? "SIMD" : "SISD") << "\n");
                                 nd.mode = newMode;
                                 updateNodeState(op);
                                 changed = true;
-
-                                // 【核心修复】：双向蔓延
-                                if (nd.mode == Mode::SIMD) {
+                                if (nd.mode == Mode::SIMD)
                                     propagateSIMDUp(op);
-                                }
-
-                                goto start_bottom_up; // 立即跳出，进入下一阶段
+                                goto start_bottom_up;
                             }
-                            updateNodeState(op); // 即使模式没变，Level也可能因前驱变化而更新
+                            updateNodeState(op);
                         }
 
                     start_bottom_up:;
-
-                        // === Phase 2: Bottom-Up (主要负责触发 SIMD 恢复/蔓延) ===
                         LLVM_DEBUG(llvm::dbgs() << "  [Phase 2] Bottom-Up Scan\n");
                         for (auto it = topo.rbegin(); it != topo.rend(); ++it) {
                             Operation* op = *it;
                             auto& nd = info[op];
                             int64_t vecCnt = nd.vectorCount;
 
-                            // Recalc Self Cost
                             int l_in = MAX_SIMD_LEVEL;
                             for (auto* p : preds[op])
                                 l_in = std::min(l_in, info[p].finalLevel);
@@ -522,44 +337,32 @@ namespace mlir::libra::mdsel {
                             int opDepth = isa<simd::SIMDMultOp>(op) ? 1 : 0;
                             int level_if_simd = (mustBoot ? BOOT_LEVEL : l_in) - opDepth;
 
-                            double cSelf_SIMD = 0.0;
-                            if (isa<simd::SIMDMinOp>(op))
-                                cSelf_SIMD = costModel.getOpCost(op, Mode::SIMD, vecCnt);
-                            else
-                                cSelf_SIMD = costModel.getOpCost(op, Mode::SIMD, l_in);
+                            double cSelf_SIMD = costModel.getOpCost(op, Mode::SIMD, l_in, vecCnt);
                             if (mustBoot)
                                 cSelf_SIMD += costModel.getBootCost(vecCnt);
-                            double cSelf_SISD = costModel.getOpCost(op, Mode::SISD, vecCnt);
+                            double cSelf_SISD = costModel.getOpCost(op, Mode::SISD, 0, vecCnt);
 
-                            // Look-Ahead Cost
                             double cOut_SIMD = 0.0, cOut_SISD = 0.0;
                             for (auto* child : succs[op]) {
-                                // Dynamic Prediction + Neutral Follow
                                 int child_l_in = level_if_simd;
                                 bool childBoot = (child_l_in <= SLIM_BOOT_TRIGGER);
-                                double costChild_SIMD = 0.0;
-                                if (isa<simd::SIMDMinOp>(child))
-                                    costChild_SIMD = costModel.getOpCost(child, Mode::SIMD, info[child].vectorCount);
-                                else
-                                    costChild_SIMD = costModel.getOpCost(child, Mode::SIMD, child_l_in);
+                                double costChild_SIMD = costModel.getOpCost(child, Mode::SIMD, child_l_in, info[child].vectorCount);
                                 if (childBoot)
                                     costChild_SIMD += costModel.getBootCost(info[child].vectorCount);
-                                double costChild_SISD = costModel.getOpCost(child, Mode::SISD, info[child].vectorCount);
+                                double costChild_SISD = costModel.getOpCost(child, Mode::SISD, 0, info[child].vectorCount);
 
-                                // Neutral Adaptation Logic
-                                if (costChild_SISD < costChild_SIMD) { // Child prefers SISD
+                                if (costChild_SISD < costChild_SIMD) {
                                     cOut_SIMD += costModel.getCastCost(Mode::SIMD, Mode::SISD, vecCnt);
                                     cOut_SISD += costModel.getCastCost(Mode::SISD, Mode::SISD, vecCnt);
-                                } else if (costChild_SIMD < costChild_SISD) { // Child prefers SIMD
+                                } else if (costChild_SIMD < costChild_SISD) {
                                     cOut_SIMD += costModel.getCastCost(Mode::SIMD, Mode::SIMD, vecCnt);
                                     cOut_SISD += costModel.getCastCost(Mode::SISD, Mode::SIMD, vecCnt);
-                                } else { // Neutral Child: Follows Parent
+                                } else {
                                     cOut_SIMD += costModel.getCastCost(Mode::SIMD, Mode::SIMD, vecCnt);
                                     cOut_SISD += costModel.getCastCost(Mode::SISD, Mode::SISD, vecCnt);
                                 }
                             }
 
-                            // [新增日志] 详细打印 Phase 2 (Bottom-Up) 的计算细节
                             LLVM_DEBUG(llvm::dbgs() << "    [BU Eval] " << getOpName(op) << ":\n"
                                                     << "      SIMD | Self: " << cSelf_SIMD << " + OutCast: " << cOut_SIMD << " = " << (cSelf_SIMD + cOut_SIMD) << "\n"
                                                     << "      SISD | Self: " << cSelf_SISD << " + OutCast: " << cOut_SISD << " = " << (cSelf_SISD + cOut_SISD) << "\n");
@@ -572,169 +375,26 @@ namespace mlir::libra::mdsel {
                                 newMode = Mode::SIMD;
                             else if (total_SISD < total_SIMD)
                                 newMode = Mode::SISD;
-                            // else Inertia
 
                             if (newMode != nd.mode) {
                                 LLVM_DEBUG(llvm::dbgs() << "    [BU HIT] " << getOpName(op) << " -> " << (newMode == Mode::SIMD ? "SIMD" : "SISD") << "\n");
                                 nd.mode = newMode;
                                 updateNodeState(op);
                                 changed = true;
-
-                                // 核心修改：触发蔓延
-                                if (nd.mode == Mode::SIMD) {
+                                if (nd.mode == Mode::SIMD)
                                     propagateSIMDUp(op);
-                                } else {
+                                else
                                     propagateSISDUp(op);
-                                }
-
-                                break; // 跳出，开始下一轮
+                                break;
                             }
                         }
                     }
 
-                    // 4. Rewrite IR
                     IRRewriter rewriter(module.getContext());
                     llvm::DenseMap<Value, Value> rewriteMap;
 
                     for (Operation* op : topo) {
-                        auto& nd = info[op];
-                        rewriter.setInsertionPoint(op);
-                        SmallVector<Value, 4> newOps;
-
-                        int reqInputLevel = nd.finalLevel;
-                        if (nd.triggerBoot) {
-                            reqInputLevel = SLIM_BOOT_TRIGGER;
-                        } else if (isa<simd::SIMDMultOp>(op) && nd.mode == Mode::SIMD) {
-                            reqInputLevel = nd.finalLevel + 1;
-                        }
-
-                        for (Value v : op->getOperands()) {
-                            Value nv = rewriteMap.lookup(v);
-                            if (!nv)
-                                nv = v;
-
-                            bool isDstSISD = (nd.mode == Mode::SISD);
-
-                            if (isa<simd::SIMDCipherType, sisd::SISDCipherType>(nv.getType())) {
-                                bool isSrcSISD = isa<sisd::SISDCipherType>(nv.getType());
-
-                                if (isSrcSISD && !isDstSISD) {
-                                    auto tt = cast<sisd::SISDCipherType>(nv.getType());
-                                    auto dstTy = simd::SIMDCipherType::get(op->getContext(), reqInputLevel, tt.getPlaintextCount(), tt.getElementType());
-                                    nv = rewriter.create<sisd::SISDCastSISDCipherToSIMDCipherOp>(op->getLoc(), dstTy, nv).getResult();
-                                } else if (!isSrcSISD && isDstSISD) {
-                                    auto st = cast<simd::SIMDCipherType>(nv.getType());
-                                    auto dstTy = sisd::SISDCipherType::get(op->getContext(), st.getPlaintextCount(), st.getElementType());
-                                    nv = rewriter.create<simd::SIMDCastSIMDCipherToSISDCipherOp>(op->getLoc(), dstTy, nv).getResult();
-                                }
-
-                                if (nd.triggerBoot && nd.mode == Mode::SIMD && isa<simd::SIMDCipherType>(nv.getType())) {
-                                    auto oldTy = cast<simd::SIMDCipherType>(nv.getType());
-                                    auto bootedTy = simd::SIMDCipherType::get(op->getContext(), BOOT_LEVEL, oldTy.getPlaintextCount(), oldTy.getElementType());
-                                    nv = rewriter.create<simd::SIMDBootOp>(op->getLoc(), bootedTy, nv).getResult();
-                                }
-                            }
-                            newOps.push_back(nv);
-                        }
-
-                        if (nd.mode == Mode::SIMD && !newOps.empty()) {
-                            bool needsAlign = isa<simd::SIMDAddOp, simd::SIMDSubOp, simd::SIMDMinOp,
-                                                  simd::SIMDSelectOp, simd::SIMDCmpOp, simd::SIMDDivOp>(op);
-
-                            if (needsAlign) {
-                                int64_t minLevel = 10000;
-                                bool hasSIMD = false;
-                                for (Value v : newOps) {
-                                    if (auto st = dyn_cast<simd::SIMDCipherType>(v.getType())) {
-                                        minLevel = std::min(minLevel, (int64_t)st.getLevel());
-                                        hasSIMD = true;
-                                    }
-                                }
-                                if (hasSIMD) {
-                                    for (Value& v : newOps) {
-                                        if (auto st = dyn_cast<simd::SIMDCipherType>(v.getType())) {
-                                            if (st.getLevel() > minLevel) {
-                                                auto targetTy = simd::SIMDCipherType::get(
-                                                    op->getContext(), minLevel, st.getPlaintextCount(), st.getElementType());
-                                                v = rewriter.create<simd::SIMDModSwitchOp>(op->getLoc(), targetTy, v).getResult();
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-
-                        Operation* newOp = nullptr;
-                        int64_t vecCnt = nd.vectorCount;
-                        Type resTy;
-
-                        if (nd.mode == Mode::SISD) {
-                            resTy = sisd::SISDCipherType::get(op->getContext(), vecCnt, rewriter.getI64Type());
-                        } else {
-                            int resultLevel = nd.finalLevel;
-                            if (isa<simd::SIMDAddOp, simd::SIMDSubOp, simd::SIMDMinOp, simd::SIMDSelectOp>(op)) {
-                                for (Value v : newOps) {
-                                    if (auto st = dyn_cast<simd::SIMDCipherType>(v.getType())) {
-                                        resultLevel = st.getLevel();
-                                        break;
-                                    }
-                                }
-                            }
-                            resTy = simd::SIMDCipherType::get(op->getContext(), resultLevel, vecCnt, rewriter.getI64Type());
-                        }
-
-                        if (isa<simd::SIMDDecryptOp, sisd::SISDDecryptOp>(op)) {
-                            if (isa<sisd::SISDCipherType>(newOps[0].getType()))
-                                newOp = rewriter.create<sisd::SISDDecryptOp>(op->getLoc(), op->getResultTypes(), newOps);
-                            else
-                                newOp = rewriter.create<simd::SIMDDecryptOp>(op->getLoc(), op->getResultTypes(), newOps);
-                        } else if (isa<simd::SIMDAddOp, sisd::SISDAddOp>(op)) {
-                            if (nd.mode == Mode::SISD)
-                                newOp = rewriter.create<sisd::SISDAddOp>(op->getLoc(), resTy, newOps);
-                            else
-                                newOp = rewriter.create<simd::SIMDAddOp>(op->getLoc(), resTy, newOps);
-                        } else if (isa<simd::SIMDSubOp, sisd::SISDSubOp>(op)) {
-                            if (nd.mode == Mode::SISD)
-                                newOp = rewriter.create<sisd::SISDSubOp>(op->getLoc(), resTy, newOps);
-                            else
-                                newOp = rewriter.create<simd::SIMDSubOp>(op->getLoc(), resTy, newOps);
-                        } else if (isa<simd::SIMDMultOp>(op)) {
-                            newOp = rewriter.create<simd::SIMDMultOp>(op->getLoc(), resTy, newOps);
-                        } else if (isa<simd::SIMDMinOp, sisd::SISDMinOp>(op)) {
-                            if (nd.mode == Mode::SISD)
-                                newOp = rewriter.create<sisd::SISDMinOp>(op->getLoc(), resTy, newOps);
-                            else
-                                newOp = rewriter.create<simd::SIMDMinOp>(op->getLoc(), resTy, newOps);
-                        } else if (isa<simd::SIMDEncryptOp, sisd::SISDEncryptOp>(op)) {
-                            if (nd.mode == Mode::SISD)
-                                newOp = rewriter.create<sisd::SISDEncryptOp>(op->getLoc(), resTy, newOps);
-                            else
-                                newOp = rewriter.create<simd::SIMDEncryptOp>(op->getLoc(), resTy, newOps);
-                        } else if (isa<simd::SIMDSelectOp>(op)) {
-                            newOp = rewriter.create<simd::SIMDSelectOp>(op->getLoc(), resTy, newOps[0], newOps[1], newOps[2]);
-                        } else if (isa<simd::SIMDCmpOp>(op)) {
-                            auto pred = cast<simd::SIMDCmpOp>(op).getPredicate();
-                            newOp = rewriter.create<simd::SIMDCmpOp>(op->getLoc(), resTy, newOps[0], newOps[1], pred);
-                        } else if (isa<simd::SIMDDivOp>(op)) {
-                            if (nd.mode == Mode::SISD)
-                                newOp = rewriter.create<sisd::SISDDivOp>(op->getLoc(), resTy, newOps);
-                            else
-                                newOp = rewriter.create<simd::SIMDDivOp>(op->getLoc(), resTy, newOps);
-                        } else if (isa<simd::SIMDLoadOp, sisd::SISDLoadOp>(op)) {
-                            if (nd.mode == Mode::SISD)
-                                newOp = rewriter.create<sisd::SISDLoadOp>(op->getLoc(), resTy, newOps[0], newOps[1]);
-                            else
-                                newOp = rewriter.create<simd::SIMDLoadOp>(op->getLoc(), resTy, newOps[0], newOps[1]);
-                        } else if (isa<simd::SIMDStoreOp, sisd::SISDStoreOp>(op)) {
-                            if (nd.mode == Mode::SISD)
-                                rewriter.create<sisd::SISDStoreOp>(op->getLoc(), newOps[0], newOps[1]);
-                            else
-                                rewriter.create<simd::SIMDStoreOp>(op->getLoc(), newOps[0], newOps[1]);
-                            continue;
-                        }
-
-                        if (newOp)
-                            rewriteMap[op->getResult(0)] = newOp->getResult(0);
+                        rewriteOperation(op, info[op], rewriteMap, rewriter);
                     }
 
                     for (Operation* op : topo) {
@@ -759,112 +419,8 @@ namespace mlir::libra::mdsel {
                         }
                     }
 
-                    auto peelCast = [](Value v) -> Value {
-                        if (auto castOp = v.getDefiningOp<sisd::SISDCastSISDCipherToSIMDCipherOp>())
-                            return castOp.getOperand();
-                        if (auto castOp = v.getDefiningOp<simd::SIMDCastSIMDCipherToSISDCipherOp>())
-                            return castOp.getOperand();
-                        if (auto castOp = v.getDefiningOp<UnrealizedConversionCastOp>())
-                            return castOp.getOperand(0);
-                        return v;
-                    };
-                    SmallVector<scf::ForOp> loopsToFix;
-                    func.walk([&](scf::ForOp forOp) { if (forOp.getNumResults() > 0) loopsToFix.push_back(forOp); });
-
-                    for (scf::ForOp forOp : loopsToFix) {
-                        IRRewriter r(forOp.getContext());
-                        r.setInsertionPoint(forOp);
-                        SmallVector<Value> newInits;
-                        bool needsFix = false;
-                        for (Value init : forOp.getInitArgs()) {
-                            Value realInit = peelCast(init);
-                            newInits.push_back(realInit);
-                            if (realInit != init)
-                                needsFix = true;
-                        }
-                        if (!needsFix)
-                            continue;
-
-                        auto newLoop = r.create<scf::ForOp>(forOp.getLoc(), forOp.getLowerBound(), forOp.getUpperBound(), forOp.getStep(), newInits);
-                        Region& oldR = forOp.getRegion();
-                        Region& newR = newLoop.getRegion();
-                        Block* oldB = &oldR.front();
-                        Block* newB = &newR.front();
-
-                        newB->getArgument(0).setType(oldB->getArgument(0).getType());
-                        for (size_t i = 0; i < newInits.size(); ++i)
-                            newB->getArgument(i + 1).setType(newInits[i].getType());
-                        r.mergeBlocks(oldB, newB, newB->getArguments());
-
-                        auto y = cast<scf::YieldOp>(newB->getTerminator());
-                        r.setInsertionPoint(y);
-                        SmallVector<Value> ny;
-                        for (Value v : y.getOperands())
-                            ny.push_back(peelCast(v));
-                        r.replaceOpWithNewOp<scf::YieldOp>(y, ny);
-
-                        r.setInsertionPointAfter(newLoop);
-                        for (auto [oldRes, newRes] : llvm::zip(forOp.getResults(), newLoop.getResults())) {
-                            if (oldRes.getType() != newRes.getType()) {
-                                Value cb = r.create<UnrealizedConversionCastOp>(newLoop.getLoc(), oldRes.getType(), newRes).getResult(0);
-                                oldRes.replaceAllUsesWith(cb);
-                            } else {
-                                oldRes.replaceAllUsesWith(newRes);
-                            }
-                        }
-                        r.eraseOp(forOp);
-                    }
-
-                    LLVM_DEBUG(llvm::dbgs() << "\n[Post-Processing] Attaching Global FlyHE Config...\n");
-                    bool hasSIMD = false, hasSISD = false, hasBoot = false;
-                    int64_t maxCount = 1;
-                    int32_t initLevel = 1;
-
-                    module.walk([&](Operation* op) {
-                        StringRef ns = op->getDialect()->getNamespace();
-                        if (ns == "simd")
-                            hasSIMD = true;
-                        if (ns == "sisd")
-                            hasSISD = true;
-                        if (isa<simd::SIMDBootOp>(op))
-                            hasBoot = true;
-
-                        auto check = [&](Type t) {
-                            if (auto st = dyn_cast<simd::SIMDCipherType>(t))
-                                maxCount = std::max(maxCount, st.getPlaintextCount());
-                            else if (auto st = dyn_cast<sisd::SISDCipherType>(t))
-                                maxCount = std::max(maxCount, st.getPlaintextCount());
-                        };
-                        for (auto t : op->getResultTypes())
-                            check(t);
-
-                        if (isa<simd::SIMDEncryptOp, sisd::SISDCastSISDCipherToSIMDCipherOp>(op)) {
-                            if (auto st = dyn_cast<simd::SIMDCipherType>(op->getResult(0).getType()))
-                                initLevel = std::max<int32_t>(initLevel, st.getLevel());
-                        }
-                    });
-
-                    module.walk([&](func::FuncOp f) {
-                        for (auto t : f.getArgumentTypes())
-                            if (auto st = dyn_cast<simd::SIMDCipherType>(t))
-                                initLevel = std::max<int32_t>(initLevel, st.getLevel());
-                    });
-
-                    std::string modeStr = (hasSIMD && hasSISD) ? "CROSS" : (hasSISD ? "SISD" : "SIMD");
-                    int64_t logn = std::max<int64_t>(1, std::ceil(std::log2(maxCount)));
-
-                    OpBuilder builder(module.getContext());
-                    SmallVector<NamedAttribute, 5> attrs;
-                    attrs.push_back(builder.getNamedAttr("mode", builder.getStringAttr(modeStr)));
-                    if (modeStr != "SISD") {
-                        attrs.push_back(builder.getNamedAttr("logN", builder.getI64IntegerAttr(16)));
-                        attrs.push_back(builder.getNamedAttr("logn", builder.getI64IntegerAttr(logn)));
-                        attrs.push_back(builder.getNamedAttr("remaining_levels", builder.getI32IntegerAttr(initLevel)));
-                        attrs.push_back(builder.getNamedAttr("bootstrapping_enabled", builder.getBoolAttr(hasBoot)));
-                    }
-                    module->setAttr("he.config", builder.getDictionaryAttr(attrs));
-
-                    LLVM_DEBUG(llvm::dbgs() << "[ModeSel] Finished. Mode=" << modeStr << "\n");
+                    fixLoopCasts(func);
+                    attachGlobalConfig(module);
                 }
             }
         };

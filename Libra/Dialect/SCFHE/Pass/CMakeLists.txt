@@ -5,6 +5,9 @@ add_public_tablegen_target(MLIRSCFHEPassesIncGen)
 
 add_mlir_dialect_library(SCFHEPasses
   AutoAnnotatePass.cpp
+  SCFHEAnalysis.cpp
+  SCFHEPatterns.cpp
+  SCFHETypeConverter.cpp
   SCFHEPass.cpp
 
   DEPENDS

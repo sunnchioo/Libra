@@ -15,6 +15,8 @@ add_public_tablegen_target(MLIRMDSELPassesIncGen)
 
 add_mlir_dialect_library(MODESELECTPasses
   ModeSelectPass.cpp
+  CostModel.cpp
+  ModeRewriter.cpp
 
   DEPENDS
   MLIRMDSELPassesIncGen

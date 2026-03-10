@@ -36,7 +36,7 @@ namespace mlir::libra::sisd {
         // ============================================================================
         class SISDTypeConverter : public TypeConverter {
         public:
-            SISDTypeConverter(MLIRContext *ctx) {
+            SISDTypeConverter(MLIRContext* ctx) {
                 // 默认规则：其他类型保持不变（如 f64, index, i32）
                 addConversion([](Type type) { return type; });
 
@@ -58,7 +58,7 @@ namespace mlir::libra::sisd {
         public:
             using OpConversionPattern::OpConversionPattern;
             LogicalResult matchAndRewrite(simd::SIMDLoadOp op, OpAdaptor adaptor,
-                                          ConversionPatternRewriter &rewriter) const override {
+                                          ConversionPatternRewriter& rewriter) const override {
                 LLVM_DEBUG(llvm::dbgs() << "\n[SISD Conversion] Inspecting simd.load at " << op.getLoc() << "\n");
 
                 Type resultType = getTypeConverter()->convertType(op.getResult().getType());
@@ -78,7 +78,7 @@ namespace mlir::libra::sisd {
             using OpConversionPattern<SourceOp>::OpConversionPattern;
 
             LogicalResult matchAndRewrite(SourceOp op, typename SourceOp::Adaptor adaptor,
-                                          ConversionPatternRewriter &rewriter) const override {
+                                          ConversionPatternRewriter& rewriter) const override {
                 LLVM_DEBUG(llvm::dbgs() << "\n[SISD Conversion] Inspecting " << op->getName() << " at " << op.getLoc() << "\n");
 
                 Type resultType = this->getTypeConverter()->convertType(op.getResult().getType());
@@ -100,7 +100,7 @@ namespace mlir::libra::sisd {
             using OpConversionPattern::OpConversionPattern;
 
             LogicalResult matchAndRewrite(simd::SIMDMultOp op, OpAdaptor adaptor,
-                                          ConversionPatternRewriter &rewriter) const override {
+                                          ConversionPatternRewriter& rewriter) const override {
                 LLVM_DEBUG(llvm::dbgs() << "\n[SISD Conversion] Inspecting simd.mul at " << op.getLoc() << "\n");
 
                 // 获取转换后的操作数类型
@@ -132,7 +132,7 @@ namespace mlir::libra::sisd {
         public:
             using OpConversionPattern::OpConversionPattern;
             LogicalResult matchAndRewrite(simd::SIMDMinOp op, OpAdaptor adaptor,
-                                          ConversionPatternRewriter &rewriter) const override {
+                                          ConversionPatternRewriter& rewriter) const override {
                 LLVM_DEBUG(llvm::dbgs() << "\n[SISD Conversion] Inspecting simd.min at " << op.getLoc() << "\n");
 
                 Type resultType = getTypeConverter()->convertType(op.getResult().getType());
@@ -146,6 +146,26 @@ namespace mlir::libra::sisd {
             }
         };
 
+        // --- Convert simd.reduce_add -> sisd.reduce_add ---
+        class ConvertSIMDReduceAddToSISDPattern : public OpConversionPattern<simd::SIMDReduceAddOp> {
+        public:
+            using OpConversionPattern::OpConversionPattern;
+            LogicalResult matchAndRewrite(simd::SIMDReduceAddOp op, OpAdaptor adaptor,
+                                          ConversionPatternRewriter& rewriter) const override {
+                LLVM_DEBUG(llvm::dbgs() << "\n[SISD Conversion] Inspecting simd.reduce_add at " << op.getLoc() << "\n");
+
+                // 获取转换后的结果类型 (SISD Cipher)
+                Type resultType = getTypeConverter()->convertType(op.getResult().getType());
+
+                // 创建 sisd.reduce_add，adaptor.getOperands()[0] 是已转换为 SISD 类型的输入
+                rewriter.replaceOpWithNewOp<sisd::SISDReduceAddOp>(
+                    op, resultType, adaptor.getOperands()[0]);
+
+                LLVM_DEBUG(llvm::dbgs() << "  -> [Success] Converted to sisd.reduce_add.\n");
+                return success();
+            }
+        };
+
         // ============================================================================
         // 手动处理 scf.for 和 scf.yield 的类型转换 (完美避开 MLIR 版本 API 变动)
         // ============================================================================
@@ -154,7 +174,7 @@ namespace mlir::libra::sisd {
             using OpConversionPattern::OpConversionPattern;
 
             LogicalResult matchAndRewrite(scf::ForOp op, OpAdaptor adaptor,
-                                          ConversionPatternRewriter &rewriter) const override {
+                                          ConversionPatternRewriter& rewriter) const override {
                 // 1. 获取转换后的 iter_args (此时它们已经是 SISD 类型了)
                 SmallVector<Value> newInitArgs = adaptor.getInitArgs();
 
@@ -183,7 +203,7 @@ namespace mlir::libra::sisd {
             using OpConversionPattern::OpConversionPattern;
 
             LogicalResult matchAndRewrite(scf::YieldOp op, OpAdaptor adaptor,
-                                          ConversionPatternRewriter &rewriter) const override {
+                                          ConversionPatternRewriter& rewriter) const override {
                 // 把 scf.yield 原本的 SIMD 参数，替换为转换后的 SISD 参数
                 rewriter.replaceOpWithNewOp<scf::YieldOp>(op, adaptor.getResults());
                 return success();
@@ -199,7 +219,7 @@ namespace mlir::libra::sisd {
 
             void runOnOperation() final {
                 auto module = getOperation();
-                MLIRContext *context = &getContext();
+                MLIRContext* context = &getContext();
 
                 LLVM_DEBUG(llvm::dbgs() << "====== Starting ConvertToSISD Pass ======\n");
 
@@ -210,6 +230,8 @@ namespace mlir::libra::sisd {
                 RewritePatternSet patterns(context);
                 patterns.add<ConvertSIMDLoadToSISDPattern>(typeConverter, context);
                 patterns.add<ConvertSIMDMinToSISDPattern>(typeConverter, context);
+
+                patterns.add<ConvertSIMDReduceAddToSISDPattern>(typeConverter, context);
 
                 // 在原本添加 add, sub 等 pattern 的地方，加上这两个：
                 patterns.add<SCFForOpConversion>(typeConverter, context);

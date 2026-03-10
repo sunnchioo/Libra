@@ -117,6 +117,7 @@ def SCFHEReduceAddOp : SCFHE_Op<"reduce_add", [Pure]> {
     let arguments = (ins AnyType:$input);
     let results = (outs AnyType:$result);
     let assemblyFormat = "$input attr-dict `:` type($input) `->` type($result)";
+    let hasCanonicalizer = 1;
 }
 
 // =============================================================================
@@ -148,6 +149,7 @@ def SCFHECastOp : SCFHE_Op<"cast", [Pure]> {
     let arguments = (ins SCFHE_SCFHECipherType:$source);
     let results = (outs SCFHE_SCFHECipherType:$dest);
     let assemblyFormat = "$source attr-dict `:` type($source) `to` type($dest)";
+    // let hasCanonicalizer = 1;
 }
 
 // =============================================================================

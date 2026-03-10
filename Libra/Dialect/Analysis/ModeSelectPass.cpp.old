@@ -61,6 +61,9 @@ namespace mlir::libra::mdsel {
         constexpr int MAX_WAVE_ITERATIONS = 100;
 
         struct CostModel {
+            // 存储结构：Key -> Index -> Cost
+            // 对于 reduce_add，Key 会变成 "simd.reduce_add.<Level>"，Index 是 Log(VectorCount)
+            // 对于普通算子，Key 是 "simd.add"，Index 是 Level
             llvm::StringMap<llvm::DenseMap<int64_t, double>> costTable;
 
             int64_t getLogCount(int64_t count) const {
@@ -96,11 +99,30 @@ namespace mlir::libra::mdsel {
                         if (!opObj)
                             continue;
                         if (auto* lat = opObj->getObject("latency")) {
-                            std::string key = (mode + "." + opname).str();
+                            std::string baseKey = (mode + "." + opname).str();
+
                             for (auto& kv : *lat) {
-                                long long idx = 0;
-                                if (!llvm::StringRef(kv.first).getAsInteger(10, idx) && kv.second.getAsNumber()) {
-                                    costTable[key][idx] = *kv.second.getAsNumber();
+                                long long idx = 0; // 通常是 Level (对于普通算子) 或 LogSize (对于min/SISD)
+                                if (!llvm::StringRef(kv.first).getAsInteger(10, idx)) {
+
+                                    // Case 1: 值是数字 (Standard Ops: add, mult, etc.) -> 一维模式
+                                    if (auto val = kv.second.getAsNumber()) {
+                                        costTable[baseKey][idx] = *val;
+                                    }
+                                    // Case 2: 值是对象 (reduce_add) -> 二维模式 (Level -> Size -> Cost)
+                                    // json结构: "latency": { "Level_0": { "Size_1": Cost, ... }, ... }
+                                    // 我们将 Level 拼接到 Key 中，变成 "simd.reduce_add.0"
+                                    else if (auto* nestedObj = kv.second.getAsObject()) {
+                                        std::string compoundKey = baseKey + "." + std::to_string(idx);
+                                        for (auto& innerKv : *nestedObj) {
+                                            long long innerIdx = 0; // Log Vector Size
+                                            if (!llvm::StringRef(innerKv.first).getAsInteger(10, innerIdx)) {
+                                                if (auto innerVal = innerKv.second.getAsNumber()) {
+                                                    costTable[compoundKey][innerIdx] = *innerVal;
+                                                }
+                                            }
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -110,13 +132,20 @@ namespace mlir::libra::mdsel {
 
             double lookup(StringRef key, int64_t idx) const {
                 auto it = costTable.find(key);
-                if (it == costTable.end())
-                    return INF_COST;
+                if (it == costTable.end()) {
+                    llvm::errs() << "\n[ModeSel] FATAL ERROR: Operation key '" << key << "' not found in cost table!\n";
+                    exit(1);
+                }
+
                 auto jt = it->second.find(idx);
                 if (jt == it->second.end()) {
-                    if (!it->second.empty())
+                    // 简单的 Fallback：如果找不到对应的 LogSize，返回第一个可用的（防止 Crash）
+                    if (!it->second.empty()) {
+                        // LLVM_DEBUG(llvm::dbgs() << "[ModeSel] Warning: Exact index " << idx << " not found for " << key << ", using fallback.\n");
                         return it->second.begin()->second;
-                    return INF_COST;
+                    }
+                    llvm::errs() << "\n[ModeSel] FATAL ERROR: Value/Index '" << idx << "' not found for key '" << key << "'!\n";
+                    exit(1);
                 }
                 return jt->second;
             }
@@ -141,25 +170,48 @@ namespace mlir::libra::mdsel {
                     return prefix + "load";
                 if (isa<simd::SIMDStoreOp, sisd::SISDStoreOp>(op))
                     return prefix + "store";
+                if (isa<simd::SIMDReduceAddOp, sisd::SISDReduceAddOp>(op))
+                    return prefix + "reduce_add";
                 return "";
             }
 
-            double getOpCost(Operation* op, Mode m, int64_t param) const {
+            double getOpCost(Operation* op, Mode m, int64_t level, int64_t vecCnt) const {
                 if (isa<simd::SIMDMultOp>(op) && m == Mode::SISD)
                     return INF_COST;
-                std::string key = getOpKey(op, m);
-                if (key.empty())
-                    return 0.0;
+
+                std::string baseKey = getOpKey(op, m);
+                if (baseKey.empty()) {
+                    llvm::errs() << "[ModeSel] Unknown Op: " << op->getName() << "\n";
+                    exit(1);
+                }
+
+                // === FIX START: Handle reduce_add for both modes ===
+
+                // 1. If it is SISD reduce_add, return Infinite Cost (or implement scalar loop cost)
+                //    because it's not in the JSON and likely not a valid scalar transform target.
+                if (baseKey == "sisd.reduce_add") {
+                    return INF_COST;
+                }
+
+                // 2. If it is SIMD reduce_add, use the special 2D lookup
+                if (baseKey == "simd.reduce_add") {
+                    std::string dynamicKey = baseKey + "." + std::to_string(level);
+                    return lookup(dynamicKey, getLogCount(vecCnt));
+                }
+                // === FIX END ===
+
+                // === Standard Handling (One-Dimensional) ===
                 int64_t lookupIndex = 0;
                 if (m == Mode::SIMD) {
-                    if (isa<simd::SIMDMinOp>(op))
-                        lookupIndex = getLogCount(param);
+                    if (isa<simd::SIMDMinOp, sisd::SISDMinOp>(op))
+                        lookupIndex = getLogCount(vecCnt);
                     else
-                        lookupIndex = param;
+                        lookupIndex = level;
                 } else {
-                    lookupIndex = getLogCount(param);
+                    lookupIndex = getLogCount(vecCnt);
                 }
-                return lookup(key, lookupIndex);
+
+                return lookup(baseKey, lookupIndex);
             }
 
             double getBootCost(int64_t vectorCount) const {
@@ -219,11 +271,24 @@ namespace mlir::libra::mdsel {
                     llvm::DenseMap<Operation*, SmallVector<Operation*, 4>> preds, succs;
                     for (Operation* op : ops) {
                         for (Value v : op->getOperands()) {
+                            Operation* defOp = nullptr;
+
+                            // 1. 常规情况：操作数由另一个算子定义
                             if (auto* def = v.getDefiningOp()) {
-                                if (std::find(ops.begin(), ops.end(), def) != ops.end()) {
-                                    preds[op].push_back(def);
-                                    succs[def].push_back(op);
+                                defOp = def;
+                            }
+                            // 2. [修复] 特殊情况：操作数是循环参数 (BlockArgument)
+                            else if (auto arg = dyn_cast<BlockArgument>(v)) {
+                                // 获取 Block 的拥有者 (即 scf.for)
+                                if (auto* ownerOp = arg.getOwner()->getParentOp()) {
+                                    defOp = ownerOp;
                                 }
+                            }
+
+                            // 建立连接
+                            if (defOp && std::find(ops.begin(), ops.end(), defOp) != ops.end()) {
+                                preds[op].push_back(defOp);
+                                succs[defOp].push_back(op);
                             }
                         }
                     }
@@ -287,26 +352,34 @@ namespace mlir::libra::mdsel {
                         int64_t vecCnt = nd.vectorCount;
 
                         double opCost = 0.0;
+
                         if (targetMode == Mode::SIMD) {
                             int l_in = MAX_SIMD_LEVEL;
                             for (auto* p : preds[op])
                                 l_in = std::min(l_in, info[p].finalLevel);
                             bool mustBoot = (l_in <= SLIM_BOOT_TRIGGER);
 
-                            if (isa<simd::SIMDMinOp>(op))
-                                opCost = costModel.getOpCost(op, Mode::SIMD, vecCnt);
-                            else
-                                opCost = costModel.getOpCost(op, Mode::SIMD, l_in);
+                            // [修改] 传入 l_in 和 vecCnt
+                            opCost = costModel.getOpCost(op, Mode::SIMD, l_in, vecCnt);
+
                             if (mustBoot)
                                 opCost += costModel.getBootCost(vecCnt);
                         } else {
-                            opCost = costModel.getOpCost(op, Mode::SISD, vecCnt);
+                            // [修改] SISD 模式下 Level 不重要，传 0 即可
+                            opCost = costModel.getOpCost(op, Mode::SISD, 0, vecCnt);
                         }
 
                         double castCost = 0.0;
                         for (auto* p : preds[op]) {
                             castCost += costModel.getCastCost(info[p].mode, targetMode, info[p].vectorCount);
                         }
+
+                        // [新增日志] 详细打印 Phase 1 / Propagation 的计算细节
+                        LLVM_DEBUG(llvm::dbgs() << "      Cost(" << getOpName(op) << ", "
+                                                << (targetMode == Mode::SIMD ? "SIMD" : "SISD") << ") = "
+                                                << "Op(" << opCost << ") + CastIn(" << castCost << ") = "
+                                                << (opCost + castCost) << "\n");
+
                         return opCost + castCost;
                     };
 
@@ -356,20 +429,19 @@ namespace mlir::libra::mdsel {
 
                                 // 评估 Parent: 现在变成 SIMD 划算吗？
                                 // 这里主要看 output cast cost 是否减少
-                                double costSelf_SIMD = 0.0;
                                 // 估算 SIMD 自身成本
                                 int l_in = MAX_SIMD_LEVEL;
                                 for (auto* pp : preds[p])
                                     l_in = std::min(l_in, info[pp].finalLevel);
                                 bool mustBoot = (l_in <= SLIM_BOOT_TRIGGER);
-                                if (isa<simd::SIMDMinOp>(p))
-                                    costSelf_SIMD = costModel.getOpCost(p, Mode::SIMD, pNd.vectorCount);
-                                else
-                                    costSelf_SIMD = costModel.getOpCost(p, Mode::SIMD, l_in);
+
+                                double costSelf_SIMD = costModel.getOpCost(p, Mode::SIMD, l_in, pNd.vectorCount);
+
                                 if (mustBoot)
                                     costSelf_SIMD += costModel.getBootCost(pNd.vectorCount);
 
-                                double costSelf_SISD = costModel.getOpCost(p, Mode::SISD, pNd.vectorCount);
+                                // double costSelf_SISD = costModel.getOpCost(p, Mode::SISD, pNd.vectorCount);
+                                double costSelf_SISD = costModel.getOpCost(p, Mode::SISD, 0, pNd.vectorCount);
 
                                 double cOut_SIMD = 0.0, cOut_SISD = 0.0;
                                 for (auto* child : succs[p]) {
@@ -408,17 +480,15 @@ namespace mlir::libra::mdsel {
 
                                 // 评估 Parent: 现在变成 SISD 划算吗？
                                 // 重点：Curr 已经变成 SISD 了，Parent 如果变 SISD，Output Cast 就会变成 0
-                                double cSelf_SISD = costModel.getOpCost(p, Mode::SISD, pNd.vectorCount);
+                                double cSelf_SISD = costModel.getOpCost(p, Mode::SISD, 0, pNd.vectorCount);
 
                                 int l_in = MAX_SIMD_LEVEL;
                                 for (auto* pp : preds[p])
                                     l_in = std::min(l_in, info[pp].finalLevel);
                                 bool mustBoot = (l_in <= SLIM_BOOT_TRIGGER);
-                                double cSelf_SIMD = 0.0;
-                                if (isa<simd::SIMDMinOp>(p))
-                                    cSelf_SIMD = costModel.getOpCost(p, Mode::SIMD, pNd.vectorCount);
-                                else
-                                    cSelf_SIMD = costModel.getOpCost(p, Mode::SIMD, l_in);
+
+                                double cSelf_SIMD = costModel.getOpCost(p, Mode::SIMD, l_in, pNd.vectorCount);
+
                                 if (mustBoot)
                                     cSelf_SIMD += costModel.getBootCost(pNd.vectorCount);
 
@@ -456,6 +526,9 @@ namespace mlir::libra::mdsel {
                         for (Operation* op : topo) {
                             auto& nd = info[op];
 
+                            // [新增] 显示当前 Op
+                            LLVM_DEBUG(llvm::dbgs() << "    [TD Eval] " << getOpName(op) << ":\n");
+
                             double total_SIMD = calcTotalCost(op, Mode::SIMD);
                             double total_SISD = calcTotalCost(op, Mode::SISD);
 
@@ -476,10 +549,6 @@ namespace mlir::libra::mdsel {
                                 if (nd.mode == Mode::SIMD) {
                                     propagateSIMDUp(op);
                                 }
-                                // else {
-                                //     // 当 add 变 SISD 时，这就把 encrypt 也拉成 SISD
-                                //     propagateSISDUp(op);
-                                // }
 
                                 goto start_bottom_up; // 立即跳出，进入下一阶段
                             }
@@ -503,14 +572,11 @@ namespace mlir::libra::mdsel {
                             int opDepth = isa<simd::SIMDMultOp>(op) ? 1 : 0;
                             int level_if_simd = (mustBoot ? BOOT_LEVEL : l_in) - opDepth;
 
-                            double cSelf_SIMD = 0.0;
-                            if (isa<simd::SIMDMinOp>(op))
-                                cSelf_SIMD = costModel.getOpCost(op, Mode::SIMD, vecCnt);
-                            else
-                                cSelf_SIMD = costModel.getOpCost(op, Mode::SIMD, l_in);
+                            double cSelf_SIMD = costModel.getOpCost(op, Mode::SIMD, l_in, vecCnt); // 注意：这里用输入 Level (l_in) 还是 Level_if_simd 取决于你的语义，通常算子开销看输入Level
+
                             if (mustBoot)
                                 cSelf_SIMD += costModel.getBootCost(vecCnt);
-                            double cSelf_SISD = costModel.getOpCost(op, Mode::SISD, vecCnt);
+                            double cSelf_SISD = costModel.getOpCost(op, Mode::SISD, 0, vecCnt);
 
                             // Look-Ahead Cost
                             double cOut_SIMD = 0.0, cOut_SISD = 0.0;
@@ -518,14 +584,12 @@ namespace mlir::libra::mdsel {
                                 // Dynamic Prediction + Neutral Follow
                                 int child_l_in = level_if_simd;
                                 bool childBoot = (child_l_in <= SLIM_BOOT_TRIGGER);
-                                double costChild_SIMD = 0.0;
-                                if (isa<simd::SIMDMinOp>(child))
-                                    costChild_SIMD = costModel.getOpCost(child, Mode::SIMD, info[child].vectorCount);
-                                else
-                                    costChild_SIMD = costModel.getOpCost(child, Mode::SIMD, child_l_in);
+
+                                double costChild_SIMD = costModel.getOpCost(child, Mode::SIMD, child_l_in, info[child].vectorCount); // 这里 child 的输入 level 是当前的 level_if_simd
+
                                 if (childBoot)
                                     costChild_SIMD += costModel.getBootCost(info[child].vectorCount);
-                                double costChild_SISD = costModel.getOpCost(child, Mode::SISD, info[child].vectorCount);
+                                double costChild_SISD = costModel.getOpCost(child, Mode::SISD, 0, info[child].vectorCount);
 
                                 // Neutral Adaptation Logic
                                 if (costChild_SISD < costChild_SIMD) { // Child prefers SISD
@@ -539,6 +603,11 @@ namespace mlir::libra::mdsel {
                                     cOut_SISD += costModel.getCastCost(Mode::SISD, Mode::SISD, vecCnt);
                                 }
                             }
+
+                            // [新增日志] 详细打印 Phase 2 (Bottom-Up) 的计算细节
+                            LLVM_DEBUG(llvm::dbgs() << "    [BU Eval] " << getOpName(op) << ":\n"
+                                                    << "      SIMD | Self: " << cSelf_SIMD << " + OutCast: " << cOut_SIMD << " = " << (cSelf_SIMD + cOut_SIMD) << "\n"
+                                                    << "      SISD | Self: " << cSelf_SISD << " + OutCast: " << cOut_SISD << " = " << (cSelf_SISD + cOut_SISD) << "\n");
 
                             double total_SIMD = cSelf_SIMD + cOut_SIMD;
                             double total_SISD = cSelf_SISD + cOut_SISD;
@@ -560,8 +629,6 @@ namespace mlir::libra::mdsel {
                                 if (nd.mode == Mode::SIMD) {
                                     propagateSIMDUp(op);
                                 } else {
-                                    // [新增] 必须加上这一段！
-                                    // 当 add 变 SISD 时，强制把 encrypt 也拉成 SISD
                                     propagateSISDUp(op);
                                 }
 

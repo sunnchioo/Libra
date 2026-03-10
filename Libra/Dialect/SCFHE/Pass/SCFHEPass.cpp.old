@@ -1,0 +1,1081 @@
+#include "mlir/Dialect/Affine/IR/AffineOps.h"
+#include "mlir/Dialect/Arith/IR/Arith.h"
+#include "mlir/Dialect/Func/IR/FuncOps.h"
+#include "mlir/Dialect/LLVMIR/LLVMDialect.h"
+#include "mlir/Dialect/Math/IR/Math.h"
+#include "mlir/Dialect/MemRef/IR/MemRef.h"
+#include "mlir/Dialect/SCF/IR/SCF.h"
+
+#include "mlir/IR/BuiltinOps.h"
+#include "mlir/IR/IRMapping.h"
+#include "mlir/IR/PatternMatch.h"
+
+#include "mlir/Interfaces/CallInterfaces.h"
+
+#include "mlir/Pass/PassManager.h"
+
+#include "mlir/Transforms/Passes.h"
+#include "mlir/Transforms/DialectConversion.h"
+#include "mlir/Transforms/GreedyPatternRewriteDriver.h"
+#include "mlir/Transforms/InliningUtils.h"
+
+#include "llvm/ADT/BitVector.h"
+#include "llvm/ADT/DenseMap.h"
+#include "llvm/Support/Debug.h"
+
+#include "SCFHEDialect.h"
+#include "SCFHEOps.h"
+#include "SCFHEPass.h"
+#include "SCFHETypes.h"
+
+// --debug-only=scfhe-pass
+#define DEBUG_TYPE "scfhe-pass"
+
+using namespace mlir;
+using namespace mlir::libra::scfhe;
+
+namespace mlir::libra::scfhe {
+
+#define GEN_PASS_DEF_CONVERTTOSCFHEPASS
+#include "SCFHEPass.h.inc"
+
+    namespace {
+
+        // ============================================================================
+        // 1. Analysis: 参数角色分析
+        // ============================================================================
+        struct FunctionArgInfo {
+            llvm::BitVector inputArgs;
+            llvm::BitVector outputArgs;
+        };
+
+        class ArgAnalysis {
+        public:
+            DenseMap<func::FuncOp, FunctionArgInfo> infoMap;
+
+            void run(ModuleOp module) {
+                LLVM_DEBUG(llvm::dbgs() << "\n=== [Analysis] Starting Parameter Analysis ===\n");
+
+                module.walk([&](func::FuncOp func) {
+                    if (!func->hasAttr("scfhe.crypto"))
+                        return;
+
+                    LLVM_DEBUG(llvm::dbgs() << "Analyzing Function: @" << func.getName() << "\n");
+
+                    FunctionArgInfo info;
+                    unsigned numArgs = func.getNumArguments();
+                    info.inputArgs.resize(numArgs);
+                    info.outputArgs.resize(numArgs);
+
+                    for (unsigned i = 0; i < numArgs; ++i) {
+                        BlockArgument arg = func.getArgument(i);
+
+                        LLVM_DEBUG(llvm::dbgs() << "  Arg[" << i << "] Type: " << arg.getType());
+
+                        if (!isa<MemRefType>(arg.getType())) {
+                            LLVM_DEBUG(llvm::dbgs() << " -> [Ignored] (Not MemRef)\n");
+                            continue;
+                        }
+
+                        bool isWritten = false;
+                        for (Operation* user : arg.getUsers()) {
+                            if (auto storeOp = dyn_cast<affine::AffineStoreOp>(user)) {
+                                if (storeOp.getMemRef() == arg) {
+                                    isWritten = true;
+                                    break;
+                                }
+                            }
+                        }
+
+                        if (isWritten) {
+                            info.outputArgs.set(i);
+                            LLVM_DEBUG(llvm::dbgs() << " -> [Output] (Will be Decrypted)\n");
+                        } else {
+                            info.inputArgs.set(i);
+                            LLVM_DEBUG(llvm::dbgs() << " -> [Input] (Will be Encrypted)\n");
+                        }
+                    }
+                    infoMap[func] = info;
+                });
+                LLVM_DEBUG(llvm::dbgs() << "=== [Analysis] Finished ===\n\n");
+            }
+        };
+
+        // ============================================================================
+        // 2. TypeConverter
+        // ============================================================================
+        class SCFHETypeConverter : public TypeConverter {
+        public:
+            SCFHETypeConverter(MLIRContext* ctx) {
+                // 1. 默认转换：遇到不认识或无需加密的类型（比如 index），直接原样返回
+                addConversion([](Type type) { return type; });
+
+                // 2. 处理 MemRef -> Cipher
+                addConversion([ctx](MemRefType type) -> std::optional<Type> {
+                    Type cipherElemType = IntegerType::get(ctx, 64);
+                    int64_t packedSize = type.hasStaticShape() ? type.getNumElements() : ShapedType::kDynamic;
+                    auto resultType = SCFHECipherType::get(ctx, packedSize, cipherElemType);
+
+                    LLVM_DEBUG(llvm::dbgs() << "[TypeConverter] Converted MemRefType: "
+                                            << type << " -> " << resultType << "\n");
+                    return resultType;
+                });
+
+                // 3. 处理浮点标量 f64 -> Cipher
+                // 修复：将 kDynamic 改为 1。因为单个 f64 标量对应的一定是大小为 1 的密文！
+                addConversion([ctx](Float64Type type) -> std::optional<Type> {
+                    Type cipherElemType = IntegerType::get(ctx, 64);
+                    auto resultType = SCFHECipherType::get(ctx, 1, cipherElemType);
+
+                    LLVM_DEBUG(llvm::dbgs() << "[TypeConverter] Converted Float64Type: "
+                                            << type << " -> " << resultType << "\n");
+                    return resultType;
+                });
+
+                // 4. 处理整数标量 (比如 i32, i64) -> Cipher
+                // 防止遇到整数运算时也退化成 ?
+                addConversion([ctx](IntegerType type) -> std::optional<Type> {
+                    Type cipherElemType = IntegerType::get(ctx, 64);
+                    auto resultType = SCFHECipherType::get(ctx, 1, cipherElemType);
+
+                    LLVM_DEBUG(llvm::dbgs() << "[TypeConverter] Converted IntegerType: "
+                                            << type << " -> " << resultType << "\n");
+                    return resultType;
+                });
+
+                // 5. Source Materialization (反向修补：从密文回退到明文类型)
+                addSourceMaterialization([](OpBuilder& b, Type t, ValueRange i, Location l) -> Value {
+                    LLVM_DEBUG(llvm::dbgs() << "[TypeConverter] SourceMaterialization: Wrapping with Cast to -> "
+                                            << t << "\n");
+                    return b.create<UnrealizedConversionCastOp>(l, t, i).getResult(0);
+                });
+
+                // 6. Target Materialization (正向修补：从明文强制套上密文马甲)
+                addTargetMaterialization([](OpBuilder& b, Type t, ValueRange i, Location l) -> Value {
+                    LLVM_DEBUG(llvm::dbgs() << "[TypeConverter] TargetMaterialization: Wrapping with Cast to -> " << t << "\n");
+
+                    // 【核心修复】：如果目标是密文，且输入是 f64/i64 标量，直接自动生成 scfhe.encrypt！
+                    if (isa<SCFHECipherType>(t) && i.size() == 1) {
+                        Type inType = i[0].getType();
+                        if (isa<FloatType>(inType) || isa<IntegerType>(inType)) {
+                            LLVM_DEBUG(llvm::dbgs() << "  -> Auto-encrypting plaintext to cipher.\n");
+                            return b.create<scfhe::SCFHEEncryptOp>(l, t, i[0]).getResult();
+                        }
+                    }
+
+                    return b.create<UnrealizedConversionCastOp>(l, t, i).getResult(0);
+                });
+            }
+        };
+        // ============================================================================
+        // 3. Patterns: 转换模式
+        // ============================================================================
+
+        // --- 函数签名转换 ---
+        struct FuncSignaturePattern : public OpConversionPattern<func::FuncOp> {
+            const ArgAnalysis& analysis;
+            FuncSignaturePattern(SCFHETypeConverter& converter, MLIRContext* ctx, const ArgAnalysis& analysis)
+                : OpConversionPattern(converter, ctx), analysis(analysis) {}
+
+            LogicalResult matchAndRewrite(func::FuncOp funcOp, OpAdaptor adaptor,
+                                          ConversionPatternRewriter& rewriter) const override {
+                if (!funcOp->hasAttr("scfhe.crypto"))
+                    return failure();
+
+                const auto& info = analysis.infoMap.lookup(funcOp);
+                auto funcType = funcOp.getFunctionType();
+                unsigned numInputs = funcType.getNumInputs();
+
+                TypeConverter::SignatureConversion signatureConverter(numInputs);
+                SmallVector<Type> newResultTypes;
+
+                Block& entryBlock = funcOp.getBody().front();
+                OpBuilder::InsertionGuard guard(rewriter);
+                rewriter.setInsertionPointToStart(&entryBlock);
+
+                for (unsigned i = 0; i < numInputs; ++i) {
+                    Type oldType = funcType.getInput(i);
+
+                    if (info.inputArgs.test(i)) {
+                        signatureConverter.addInputs(i, typeConverter->convertType(oldType));
+                    } else if (info.outputArgs.test(i)) {
+                        Value dummy = rewriter.create<UnrealizedConversionCastOp>(
+                                                  funcOp.getLoc(), oldType, ValueRange{})
+                                          .getResult(0);
+                        signatureConverter.remapInput(i, dummy);
+                        newResultTypes.push_back(typeConverter->convertType(oldType));
+                    } else {
+                        // Value c0;
+                        // if (isa<IntegerType>(oldType)) {
+                        //     c0 = rewriter.create<arith::ConstantOp>(
+                        //         funcOp.getLoc(), oldType, rewriter.getIntegerAttr(oldType, 0));
+                        // } else {
+                        //     c0 = rewriter.create<arith::ConstantIndexOp>(funcOp.getLoc(), 0);
+                        // }
+                        // signatureConverter.remapInput(i, c0);
+
+                        signatureConverter.addInputs(i, oldType);
+                    }
+                }
+
+                rewriter.modifyOpInPlace(funcOp, [&] {
+                    auto newType = rewriter.getFunctionType(signatureConverter.getConvertedTypes(), newResultTypes);
+                    funcOp.setFunctionType(newType);
+
+                    funcOp.setVisibility(mlir::SymbolTable::Visibility::Private);
+                });
+
+                if (failed(rewriter.convertRegionTypes(&funcOp.getBody(), *typeConverter, &signatureConverter))) {
+                    return failure();
+                }
+
+                return success();
+            }
+        };
+
+        // --- 通用二元算术转换模板 (支持纯密文、密文-明文、密文-常数混合运算，及动态形状穿透) ---
+        // template <typename SourceOp, typename TargetOp>
+        // struct BinaryOpRewritePattern : public OpConversionPattern<SourceOp> {
+        //     using OpConversionPattern<SourceOp>::OpConversionPattern;
+
+        //     // 辅助函数：穿透 UnrealizedConversionCastOp，获取底层真实的 Cipher Value
+        //     // 如果框架强行插入了 cast(? -> 1)，我们通过这个函数把它剥离掉，拿回 ?
+        //     Value peelCast(Value v) const {
+        //         if (auto castOp = v.getDefiningOp<UnrealizedConversionCastOp>()) {
+        //             Value input = castOp.getInputs()[0];
+        //             if (auto inputTy = dyn_cast<SCFHECipherType>(input.getType())) {
+        //                 // 只有当底层类型包含更多信息（比如是动态形状 ? 或更大的向量）时才穿透
+        //                 if (inputTy.getPlaintextCount() == ShapedType::kDynamic || inputTy.getPlaintextCount() > 1) {
+        //                     return input;
+        //                 }
+        //             }
+        //         }
+        //         return v;
+        //     }
+
+        //     LogicalResult matchAndRewrite(SourceOp op, typename SourceOp::Adaptor adaptor,
+        //                                   ConversionPatternRewriter& rewriter) const override {
+        //         LLVM_DEBUG(llvm::dbgs() << "\n[BinaryOpRewritePattern] Trying to convert " << op->getName() << " at " << op.getLoc() << "\n");
+
+        //         // 1. 获取操作数，并尝试穿透框架自动插入的 Cast
+        //         Value lhs = peelCast(adaptor.getOperands()[0]);
+        //         Value rhs = peelCast(adaptor.getOperands()[1]);
+
+        //         bool lhsIsCipher = isa<SCFHECipherType>(lhs.getType());
+        //         bool rhsIsCipher = isa<SCFHECipherType>(rhs.getType());
+
+        //         LLVM_DEBUG(llvm::dbgs() << "  -> LHS Type: " << lhs.getType() << " (Cipher: " << lhsIsCipher << ")\n");
+        //         LLVM_DEBUG(llvm::dbgs() << "  -> RHS Type: " << rhs.getType() << " (Cipher: " << rhsIsCipher << ")\n");
+
+        //         if (!lhsIsCipher && !rhsIsCipher) {
+        //             LLVM_DEBUG(llvm::dbgs() << "  -> [Failed] Neither LHS nor RHS is a CipherType. Rejecting conversion.\n");
+        //             return failure();
+        //         }
+
+        //         // 2. 决定结果类型：优先使用形状更大的那个（比如 ? 优于 1）
+        //         Type resType;
+        //         if (lhsIsCipher && rhsIsCipher) {
+        //             // 如果两个都是密文，取“更大”的那个类型（通常是动态类型 ?）
+        //             auto lTy = cast<SCFHECipherType>(lhs.getType());
+        //             auto rTy = cast<SCFHECipherType>(rhs.getType());
+        //             if (lTy.getPlaintextCount() == ShapedType::kDynamic || lTy.getPlaintextCount() > rTy.getPlaintextCount())
+        //                 resType = lTy;
+        //             else
+        //                 resType = rTy;
+        //         } else {
+        //             resType = lhsIsCipher ? lhs.getType() : rhs.getType();
+        //         }
+
+        //         LLVM_DEBUG(llvm::dbgs() << "  -> [Success] Converting to SCFHE Binary Op with Result Type: " << resType << "\n");
+
+        //         // 3. 创建新算子。
+        //         // 注意：如果 resType 是 ?，但框架期望的是 1（根据 TypeConverter），
+        //         // 框架会自动在新算子后面再补一个 cast(? -> 1)，这是符合预期的，
+        //         // 只要我们保证当前的 add 算子本身是在宽向量上执行的即可。
+        //         rewriter.replaceOpWithNewOp<TargetOp>(op, resType, lhs, rhs);
+        //         return success();
+        //     }
+        // };
+
+        // --- 通用二元算术转换模板 ---
+        template <typename SourceOp, typename TargetOp>
+        struct BinaryOpRewritePattern : public OpConversionPattern<SourceOp> {
+            using OpConversionPattern<SourceOp>::OpConversionPattern;
+
+            // 辅助函数保持不变
+            Value peelCast(Value v) const {
+                if (auto castOp = v.getDefiningOp<UnrealizedConversionCastOp>()) {
+                    Value input = castOp.getInputs()[0];
+                    if (auto inputTy = dyn_cast<SCFHECipherType>(input.getType())) {
+                        if (inputTy.getPlaintextCount() == ShapedType::kDynamic || inputTy.getPlaintextCount() > 1) {
+                            return input;
+                        }
+                    }
+                }
+                return v;
+            }
+
+            LogicalResult matchAndRewrite(SourceOp op, typename SourceOp::Adaptor adaptor,
+                                          ConversionPatternRewriter& rewriter) const override {
+                LLVM_DEBUG(llvm::dbgs() << "\n[BinaryOpRewritePattern] Trying to convert " << op->getName() << " at " << op.getLoc() << "\n");
+
+                // 1. LHS (左操作数/被除数)：必须使用转换后的密文
+                // 我们从 adaptor 中获取，因为它已经被 TypeConverter 处理成了 Cipher
+                Value lhs = peelCast(adaptor.getOperands()[0]);
+
+                // 2. RHS (右操作数/除数)：根据情况决定使用“原始明文”还是“转换后的密文”
+                Value rhs;
+
+                // === [核心修改] Div 算子特殊处理 ===
+                // 用户的逻辑：如果除数是明文，直接用，不要经过 encrypt
+                if constexpr (std::is_same<TargetOp, SCFHEDivOp>::value) {
+                    Value originalRhs = op.getOperand(1); // 获取源 IR 中的原始操作数
+
+                    // 检查原始操作数是否为浮点类型 (f64)
+                    if (isa<FloatType>(originalRhs.getType())) {
+                        LLVM_DEBUG(llvm::dbgs() << "  -> [Optimization] Div op detected. Using ORIGINAL plaintext operand directly (bypassing conversion).\n");
+                        rhs = originalRhs; // 直接使用原始的 f64 值
+                    } else {
+                        // 如果不是浮点数（比如已经是密文了），则使用转换后的值
+                        rhs = peelCast(adaptor.getOperands()[1]);
+                    }
+                } else {
+                    // 对于 Add, Sub, Mul，照常使用转换后的值 (Cipher)
+                    rhs = peelCast(adaptor.getOperands()[1]);
+                }
+
+                // 3. 确定结果类型
+                bool lhsIsCipher = isa<SCFHECipherType>(lhs.getType());
+                bool rhsIsCipher = isa<SCFHECipherType>(rhs.getType());
+
+                LLVM_DEBUG(llvm::dbgs() << "  -> LHS Type: " << lhs.getType() << "\n");
+                LLVM_DEBUG(llvm::dbgs() << "  -> RHS Type: " << rhs.getType() << "\n");
+
+                if (!lhsIsCipher && !rhsIsCipher) {
+                    return failure();
+                }
+
+                // 结果类型逻辑：
+                // Case 1: Cipher / Cipher -> Cipher (取更宽的那个)
+                // Case 2: Cipher / Plaintext -> Cipher (跟随 LHS)
+                Type resType;
+                if (lhsIsCipher && rhsIsCipher) {
+                    auto lTy = cast<SCFHECipherType>(lhs.getType());
+                    auto rTy = cast<SCFHECipherType>(rhs.getType());
+                    if (lTy.getPlaintextCount() == ShapedType::kDynamic || lTy.getPlaintextCount() > rTy.getPlaintextCount())
+                        resType = lTy;
+                    else
+                        resType = rTy;
+                } else {
+                    // 如果 RHS 是 f64，这里 rhsIsCipher 为 false，resType 会正确设为 LHS 的类型
+                    resType = lhsIsCipher ? lhs.getType() : rhs.getType();
+                }
+
+                LLVM_DEBUG(llvm::dbgs() << "  -> [Success] Converting to SCFHE Binary Op with Result Type: " << resType << "\n");
+
+                rewriter.replaceOpWithNewOp<TargetOp>(op, resType, lhs, rhs);
+                return success();
+            }
+        };
+
+        // --- 识别 Sum Reduce 并转换为 scfhe.reduce_add ---
+        struct ReduceAddPattern : public OpConversionPattern<affine::AffineForOp> {
+            // 【关键修改】设置 Benefit = 10，确保比 AffineForToSCFForPattern (Benefit=1) 优先执行！
+            ReduceAddPattern(TypeConverter& converter, MLIRContext* context)
+                : OpConversionPattern(converter, context, /*benefit=*/10) {}
+
+            LogicalResult matchAndRewrite(affine::AffineForOp op, OpAdaptor adaptor,
+                                          ConversionPatternRewriter& rewriter) const override {
+                // 0. 增加入口日志，确认 Pattern 是否被触发
+                LLVM_DEBUG(llvm::dbgs() << "\n[ReduceAddPattern] Inspecting loop at " << op.getLoc() << "\n");
+
+                auto funcOp = op->getParentOfType<func::FuncOp>();
+                if (!funcOp || !funcOp->hasAttr("scfhe.crypto"))
+                    return failure();
+
+                // 1. 必须只有一个 iter_arg (即累加器 sum)
+                if (op.getNumIterOperands() != 1) {
+                    LLVM_DEBUG(llvm::dbgs() << "  -> Failed: Loop has " << op.getNumIterOperands() << " iter_args (expected 1)\n");
+                    return failure();
+                }
+
+                // 2. 获取 Loop Body 和 Terminator (Yield)
+                Block* body = op.getBody();
+                auto yieldOp = dyn_cast<affine::AffineYieldOp>(body->getTerminator());
+                if (!yieldOp || yieldOp.getNumOperands() != 1)
+                    return failure();
+
+                // 3. Yield 的值必须来自 arith.addf 算子
+                Value yieldedVal = yieldOp.getOperand(0);
+                auto addOp = yieldedVal.getDefiningOp<arith::AddFOp>();
+                if (!addOp) {
+                    LLVM_DEBUG(llvm::dbgs() << "  -> Failed: Yielded value is not from arith.addf\n");
+                    return failure();
+                }
+
+                // 4. Add 的操作数必须一个是 iter_arg，另一个是 load 出来的值
+                Value iterArg = body->getArgument(1); // 0 是 IV, 1 是第一个 iter_arg
+                Value loadVal;
+
+                if (addOp.getLhs() == iterArg) {
+                    loadVal = addOp.getRhs();
+                } else if (addOp.getRhs() == iterArg) {
+                    loadVal = addOp.getLhs();
+                } else {
+                    LLVM_DEBUG(llvm::dbgs() << "  -> Failed: AddOp does not use the accumulator (iter_arg)\n");
+                    return failure();
+                }
+
+                // 5. 检查另外一个操作数是否由 affine.load 定义
+                auto loadOp = loadVal.getDefiningOp<affine::AffineLoadOp>();
+                if (!loadOp) {
+                    LLVM_DEBUG(llvm::dbgs() << "  -> Failed: The other operand is not from affine.load\n");
+                    return failure();
+                }
+
+                // 6. load 的 index 必须是当前的循环变量 (Induction Variable)
+                // 这里假设是 1D Reduce。如果有更复杂的索引计算，需要更复杂的分析。
+                if (loadOp.getIndices().size() != 1 || loadOp.getIndices()[0] != op.getInductionVar()) {
+                    LLVM_DEBUG(llvm::dbgs() << "  -> Failed: Load index is not the loop IV\n");
+                    return failure();
+                }
+
+                LLVM_DEBUG(llvm::dbgs() << "  -> [MATCHED] Found sum reduction loop!\n");
+
+                // 7. 获取外层传入的经过加密转换的密文数组 (Cipher Array)
+                Value originalMemref = loadOp.getMemref();
+                // 使用 adaptor.getOperands() 无法获取循环外的 memref，必须用 rewriter 获取映射
+                Value mappedArray = rewriter.getRemappedValue(originalMemref);
+
+                if (!mappedArray) {
+                    // 如果还没有被映射（例如参数转换还没发生），则可能需要等待或者这就是原始值
+                    LLVM_DEBUG(llvm::dbgs() << "  -> Warning: Memref not remapped yet. Using original.\n");
+                    mappedArray = originalMemref;
+                }
+
+                // 检查映射后的类型是否为 CipherType，如果不是，说明还没有被转成密文，不能处理
+                if (!isa<SCFHECipherType>(mappedArray.getType())) {
+                    LLVM_DEBUG(llvm::dbgs() << "  -> Failed: Mapped array is not SCFHECipherType (" << mappedArray.getType() << ")\n");
+                    return failure();
+                }
+
+                // 8. 构造替换逻辑
+                // 目标类型：标量密文 (例如 !scfhe.cipher<1 x i64>)
+                // 注意：reduce_add 的结果通常是 <1 x i64>
+                auto arrayType = cast<SCFHECipherType>(mappedArray.getType());
+                Type resultType = SCFHECipherType::get(getContext(), 1, arrayType.getElementType());
+
+                // 步骤 A: 执行 reduce_add (将密文数组规约为单个标量密文)
+                Value reduceResult = rewriter.create<scfhe::SCFHEReduceAddOp>(op.getLoc(), resultType, mappedArray);
+
+                // 步骤 B: 加上初始值 (因为 IR 中的 initial value 通常是 %cst = 0.0)
+                // 即: final_sum = reduce_add(array) + init_val
+                Value initVal = adaptor.getInits()[0]; // 这是转换后的初始值 (密文)
+
+                Value finalResult = rewriter.create<scfhe::SCFHEAddOp>(op.getLoc(), resultType, reduceResult, initVal);
+
+                // 用这个算出的最终结果替换整个 affine.for 循环
+                rewriter.replaceOp(op, finalResult);
+
+                LLVM_DEBUG(llvm::dbgs() << "  -> [Success] Replaced affine.for with scfhe.reduce_add + scfhe.add.\n");
+
+                return success();
+            }
+        };
+
+        // --- Math Exp 转换 ---
+        struct ExpRewritePattern : public OpConversionPattern<math::ExpOp> {
+            using OpConversionPattern<math::ExpOp>::OpConversionPattern;
+
+            LogicalResult matchAndRewrite(math::ExpOp op, OpAdaptor adaptor,
+                                          ConversionPatternRewriter& rewriter) const override {
+                Type resultType = getTypeConverter()->convertType(op.getType());
+                rewriter.replaceOpWithNewOp<scfhe::SCFHEExpOp>(op, resultType, adaptor.getOperand());
+                return success();
+            }
+        };
+
+        // --- 将 AffineYield 转换为 SCFYield ---
+        struct AffineYieldToSCFYieldPattern : public OpConversionPattern<affine::AffineYieldOp> {
+            using OpConversionPattern::OpConversionPattern;
+
+            LogicalResult matchAndRewrite(affine::AffineYieldOp op, OpAdaptor adaptor,
+                                          ConversionPatternRewriter& rewriter) const override {
+                LLVM_DEBUG(llvm::dbgs() << "\n[AffineYieldToSCFYieldPattern] Converting yield...\n");
+                // adaptor.getOperands() 会自动拉取到内部算子计算出的 CipherType！
+                rewriter.replaceOpWithNewOp<scf::YieldOp>(op, adaptor.getOperands());
+                return success();
+            }
+        };
+
+        // --- 有数据依赖循环 1:1 映射 ---
+        struct AffineForToSCFForPattern : public OpConversionPattern<affine::AffineForOp> {
+            using OpConversionPattern::OpConversionPattern;
+
+            LogicalResult matchAndRewrite(affine::AffineForOp op, OpAdaptor adaptor,
+                                          ConversionPatternRewriter& rewriter) const override {
+                auto funcOp = op->getParentOfType<func::FuncOp>();
+                if (!funcOp || !funcOp->hasAttr("scfhe.crypto"))
+                    return failure();
+
+                LLVM_DEBUG(llvm::dbgs() << "\n[AffineForToSCFForPattern] Inspecting AffineForOp at " << op.getLoc() << "\n");
+
+                // 【核心拦截】：如果没有 iter_args (无数据依赖)，拒绝匹配，交给策略 A 处理
+                if (op.getNumIterOperands() == 0) {
+                    LLVM_DEBUG(llvm::dbgs() << "  -> [Rejected] Loop has NO iter_args. Delegating to Batching Pattern.\n");
+                    return failure();
+                }
+
+                LLVM_DEBUG(llvm::dbgs() << "  -> [Accepted] Data dependency (iter_args) found. Converting to scf.for...\n");
+
+                Location loc = op.getLoc();
+
+                // 1. 获取边界和步长
+                Value lowerBound = op.hasConstantLowerBound()
+                                       ? rewriter.create<arith::ConstantIndexOp>(loc, op.getConstantLowerBound())
+                                       : adaptor.getLowerBoundOperands()[0];
+
+                Value upperBound = op.hasConstantUpperBound()
+                                       ? rewriter.create<arith::ConstantIndexOp>(loc, op.getConstantUpperBound())
+                                       : adaptor.getUpperBoundOperands()[0];
+
+                Value step = rewriter.create<arith::ConstantIndexOp>(loc, op.getStepAsInt());
+                LLVM_DEBUG(llvm::dbgs() << "  -> Extracted loop bounds and step.\n");
+
+                // 2. 获取已经经过 TypeConverter 转换的初始值 (f64 变成了 cipher)
+                ValueRange inits = adaptor.getInits();
+                LLVM_DEBUG(llvm::dbgs() << "  -> Extracted " << inits.size() << " converted iter_args (inits).\n");
+                for (auto [idx, init] : llvm::enumerate(inits)) {
+                    LLVM_DEBUG(llvm::dbgs() << "     init[" << idx << "] type is: " << init.getType() << "\n");
+                }
+
+                // 3. 创建目标 SCF 循环
+                auto scfForOp = rewriter.create<scf::ForOp>(loc, lowerBound, upperBound, step, inits);
+                LLVM_DEBUG(llvm::dbgs() << "  -> Created new scf.for operation.\n");
+
+                // 4. 将旧的 AffineFor Block 迁移到 SCF For 中
+                Region& oldRegion = op.getRegion();
+                Region& newRegion = scfForOp.getRegion();
+                if (!newRegion.empty()) {
+                    rewriter.eraseBlock(&newRegion.front());
+                }
+                rewriter.inlineRegionBefore(oldRegion, newRegion, newRegion.end());
+                LLVM_DEBUG(llvm::dbgs() << "  -> Inlined old region into new scf.for region.\n");
+
+                // 5. 动态修改 Block 参数的类型，以适配密文 (TypeConverter 的魔法在此生效)
+                Block& body = newRegion.front();
+                for (size_t i = 1; i < body.getNumArguments(); ++i) {
+                    Type oldType = body.getArgument(i).getType();
+                    Type newIterType = inits[i - 1].getType();
+                    body.getArgument(i).setType(newIterType);
+                    LLVM_DEBUG(llvm::dbgs() << "  -> Updated Block Arg " << i << " type: "
+                                            << oldType << " -> " << newIterType << "\n");
+                }
+
+                // 6. 替换 Yield 算子
+                // auto oldYield = cast<affine::AffineYieldOp>(body.getTerminator());
+                // rewriter.setInsertionPoint(oldYield);
+                // rewriter.replaceOpWithNewOp<scf::YieldOp>(oldYield, oldYield.getOperands());
+                // LLVM_DEBUG(llvm::dbgs() << "  -> Replaced affine.yield with scf.yield.\n");
+
+                rewriter.replaceOp(op, scfForOp.getResults());
+                LLVM_DEBUG(llvm::dbgs() << "[AffineForToSCFForPattern] Conversion complete.\n");
+                return success();
+            }
+        };
+
+        // --- 移除 Load (直接映射为加密 Value) ---
+        // struct RemoveLoadPattern : public OpConversionPattern<affine::AffineLoadOp> {
+        //     using OpConversionPattern::OpConversionPattern;
+        //     LogicalResult matchAndRewrite(affine::AffineLoadOp op, OpAdaptor adaptor,
+        //                                   ConversionPatternRewriter& rewriter) const override {
+        //         Value memref = adaptor.getMemref();
+        //         if (memref && isa<SCFHECipherType>(memref.getType())) {
+        //             rewriter.replaceOp(op, memref);
+        //             return success();
+        //         }
+        //         return failure();
+        //     }
+        // };
+
+        // --- 将 affine.load 转换为逻辑层的密文提取算子 scfhe.load ---
+        struct AffineLoadToSCFHELoadPattern : public OpConversionPattern<affine::AffineLoadOp> {
+            using OpConversionPattern::OpConversionPattern;
+
+            LogicalResult matchAndRewrite(affine::AffineLoadOp op, OpAdaptor adaptor,
+                                          ConversionPatternRewriter& rewriter) const override {
+                LLVM_DEBUG(llvm::dbgs() << "\n[AffineLoadToSCFHELoadPattern] Inspecting affine.load at " << op.getLoc() << "\n");
+
+                Value memref = adaptor.getMemref();
+
+                // 1. 确保源操作数已经是密文类型
+                if (!isa<SCFHECipherType>(memref.getType())) {
+                    LLVM_DEBUG(llvm::dbgs() << "  -> [Failed] The source memref is NOT a CipherType.\n");
+                    return failure();
+                }
+
+                auto cipherType = cast<SCFHECipherType>(memref.getType());
+                auto indices = adaptor.getIndices();
+                if (indices.empty()) {
+                    LLVM_DEBUG(llvm::dbgs() << "  -> [Failed] No indices found for affine.load.\n");
+                    return failure();
+                }
+
+                // 2. 【核心判决】：智能判断是 Scalar Load 还是 SIMD Batch Load
+                // 逻辑：如果索引是常数 0，且数组大小 > 1 或者是动态形状 (?)，则认为是 Batching 模式
+                bool isBatchingLoad = false;
+                if (auto cst = indices[0].getDefiningOp<arith::ConstantIndexOp>()) {
+                    if (cst.value() == 0 &&
+                        (cipherType.getPlaintextCount() > 1 || cipherType.getPlaintextCount() == ShapedType::kDynamic)) {
+                        isBatchingLoad = true;
+                    }
+                }
+
+                // 3. 执行重写
+                if (isBatchingLoad) {
+                    // === SIMD 模式 (优化) ===
+                    // 直接“透传”密文值，不生成 scfhe.load 指令。
+                    // 这样，后续的 add/sub 算子就会直接使用 scfhe.encrypt 产生的大密文。
+                    LLVM_DEBUG(llvm::dbgs() << "  -> [SIMD Mode] Detected Batching (Index 0). Bypassing load to use FULL cipher directly: " << cipherType << "\n");
+                    rewriter.replaceOp(op, memref);
+                } else {
+                    // === 标量模式 (默认) ===
+                    // 生成 scfhe.load 指令，从大数组中提取单一元素。
+                    // 目标类型固定为 <1 x i64>
+                    Type resultType = SCFHECipherType::get(rewriter.getContext(), 1, IntegerType::get(rewriter.getContext(), 64));
+                    LLVM_DEBUG(llvm::dbgs() << "  -> [Scalar Mode] Normal indexing. Creating scfhe.load for single element: " << resultType << "\n");
+                    rewriter.replaceOpWithNewOp<SCFHELoadOp>(op, resultType, memref, indices[0]);
+                }
+
+                return success();
+            }
+        };
+
+        // --- 将 Store 转换为 Return ---
+        struct StoreToReturnPattern : public OpConversionPattern<affine::AffineStoreOp> {
+            using OpConversionPattern::OpConversionPattern;
+            LogicalResult matchAndRewrite(affine::AffineStoreOp op, OpAdaptor adaptor,
+                                          ConversionPatternRewriter& rewriter) const override {
+                LLVM_DEBUG(llvm::dbgs() << "\n[StoreToReturnPattern] Inspecting AffineStoreOp...\n");
+
+                Value val = adaptor.getOperands()[0];
+                LLVM_DEBUG(llvm::dbgs() << "  -> Value to store Type: " << val.getType() << "\n");
+
+                if (val && isa<SCFHECipherType>(val.getType())) {
+                    Operation* term = op->getBlock()->getTerminator();
+                    if (auto retOp = dyn_cast<func::ReturnOp>(term)) {
+
+                        // 【新增修复点】：获取这个 store 原本写入的 memref 转换后的目标密文类型
+                        // 比如原本写入 memref<?xf64>，这里 expectedRetType 就会是 <? x i64>
+                        Type expectedRetType = getTypeConverter()->convertType(op.getMemRef().getType());
+                        Value retVal = val;
+
+                        // 如果当前计算出的密文类型（<1 x i64>）与函数签名要求的类型（<? x i64>）不一致
+                        if (expectedRetType && retVal.getType() != expectedRetType) {
+                            LLVM_DEBUG(llvm::dbgs() << "  -> Type mismatch for return! Route B: Inserting Cast to satisfy signature.\n");
+
+                            // 老老实实贴一个创可贴，把 <1> 强转成 <?> 以满足外部调用者的期望
+                            retVal = rewriter.create<UnrealizedConversionCastOp>(
+                                                 op.getLoc(), expectedRetType, retVal)
+                                         .getResult(0);
+                        }
+
+                        LLVM_DEBUG(llvm::dbgs() << "  -> [Success] Replacing store with func.return containing Cipher.\n");
+                        rewriter.setInsertionPoint(term);
+                        rewriter.replaceOpWithNewOp<func::ReturnOp>(term, retVal);
+                        rewriter.eraseOp(op);
+                        return success();
+                    } else {
+                        LLVM_DEBUG(llvm::dbgs() << "  -> [Failed] Block terminator is not func.return.\n");
+                    }
+                } else {
+                    LLVM_DEBUG(llvm::dbgs() << "  -> [Failed] The value to store is NOT a CipherType.\n");
+                }
+                return failure();
+            }
+        };
+
+        // --- 清理内联后产生的冗余形状 Cast ---
+        struct RemoveDecryptCastPattern : public OpRewritePattern<SCFHEDecryptOp> {
+            using OpRewritePattern::OpRewritePattern;
+
+            LogicalResult matchAndRewrite(SCFHEDecryptOp op, PatternRewriter& rewriter) const override {
+                // 检查 decrypt 的输入是否是一个 UnrealizedConversionCastOp
+                if (auto castOp = op.getOperand().getDefiningOp<UnrealizedConversionCastOp>()) {
+                    Value realInput = castOp.getInputs()[0];
+
+                    if (auto cipherType = dyn_cast<SCFHECipherType>(realInput.getType())) {
+                        LLVM_DEBUG(llvm::dbgs() << "[Cleanup] Melting away UnrealizedConversionCastOp before decrypt.\n");
+
+                        // 1. 获取准确的静态类型（从输入的 <1 x i64> 密文推导出 memref<1xf64> 明文）
+                        auto oldMemRefType = cast<MemRefType>(op.getType());
+                        auto newMemRefType = MemRefType::get({cipherType.getPlaintextCount()}, oldMemRefType.getElementType());
+
+                        // 2. 老老实实地用准确的静态类型创建 Decrypt 算子，满足验证器的严格要求
+                        auto newDecrypt = rewriter.create<SCFHEDecryptOp>(op.getLoc(), newMemRefType, realInput);
+
+                        // 3. 贴一个标准的 memref.cast，把 <1> 转回老算子期待的 <?>
+                        // 这样既满足了 MLIR 严格的类型推断，又满足了后续的 memref.copy
+                        rewriter.replaceOpWithNewOp<memref::CastOp>(op, oldMemRefType, newDecrypt);
+
+                        return success();
+                    }
+                }
+                return failure();
+            }
+        };
+
+        // --- 让 scfhe.load 直接穿透 scfhe.cast，读取底层真实的静态密文 ---
+        struct RemoveLoadCastPattern : public OpRewritePattern<SCFHELoadOp> {
+            using OpRewritePattern::OpRewritePattern;
+
+            LogicalResult matchAndRewrite(SCFHELoadOp op, PatternRewriter& rewriter) const override {
+                // 1. 获取 load 正在读取的数组 (第 0 个操作数)
+                Value arrayOperand = op.getOperand(0);
+
+                // 2. 检查它是不是一个 scfhe.cast
+                if (auto castOp = arrayOperand.getDefiningOp<SCFHECastOp>()) {
+                    LLVM_DEBUG(llvm::dbgs() << "[Cleanup] Melting away SCFHECastOp before load.\n");
+
+                    // 获取 Cast 之前真实的静态数组 (比如 <10 x i64>)
+                    Value realArray = castOp.getOperand();
+
+                    // 【修复处】：直接获取第 1 个操作数作为唯一的 index
+                    Value index = op.getOperand(1);
+
+                    // 3. 用真实的静态数组和唯一的 index 替换掉老 load
+                    rewriter.replaceOpWithNewOp<SCFHELoadOp>(
+                        op,
+                        op.getType(),
+                        realArray,
+                        index);
+                    return success();
+                }
+                return failure();
+            }
+        };
+
+        struct RemoveRedundantCopy : public OpRewritePattern<memref::CopyOp> {
+            using OpRewritePattern<memref::CopyOp>::OpRewritePattern;
+
+            LogicalResult matchAndRewrite(memref::CopyOp op, PatternRewriter& rewriter) const override {
+                Value source = op.getSource();
+                Value target = op.getTarget();
+
+                // 【安全检查 1】: 目标必须是刚刚 alloc 出来的
+                auto allocOp = target.getDefiningOp<memref::AllocOp>();
+                if (!allocOp) {
+                    return failure();
+                }
+
+                // 【安全检查 2】: 类型必须严格一致 (包含 Shape, Element Type 和 Layout)
+                if (source.getType() != target.getType()) {
+                    return failure();
+                }
+
+                // 遍历所有使用这个 alloc 的操作，进行严格审查
+                for (Operation* user : target.getUsers()) {
+                    if (user == op)
+                        continue; // 忽略当前的 Copy
+                    if (isa<memref::DeallocOp>(user))
+                        continue; // 忽略释放操作
+
+                    // 查找 User 在当前 Copy 所在 Block 的“祖先节点”
+                    Operation* ancestor = user;
+                    while (ancestor && ancestor->getBlock() != op->getBlock()) {
+                        ancestor = ancestor->getParentOp();
+                    }
+
+                    // 【安全检查 3】: 时序检查 (Dominance)
+                    // 如果在 Copy 之前就使用了内存，说明逻辑有异，不能替换
+                    if (ancestor && ancestor->isBeforeInBlock(op)) {
+                        return failure();
+                    }
+
+                    // 【安全检查 4】: 唯一写入者检查
+                    // 确保没有其他的 store 或 copy 覆盖这块内存
+                    if (isa<memref::StoreOp, affine::AffineStoreOp>(user)) {
+                        return failure();
+                    }
+                    if (auto otherCopy = dyn_cast<memref::CopyOp>(user)) {
+                        if (otherCopy.getTarget() == target) {
+                            return failure();
+                        }
+                    }
+                }
+
+                // 所有安全检查通过：将所有使用 alloc 的地方替换为 source (Decrypt的结果)
+                rewriter.replaceAllUsesWith(target, source);
+
+                // 删除冗余的 Copy 和 Alloc
+                rewriter.eraseOp(op);
+                rewriter.eraseOp(allocOp);
+
+                return success();
+            }
+        };
+
+        // --- SCF 循环完全展开 Pattern (用于 Phase 5) ---
+        // 专门处理在 Phase 3 被转换并在 Phase 4 被内联后的 scf.for 循环
+        struct SCFFullUnrollPattern : public OpRewritePattern<scf::ForOp> {
+            using OpRewritePattern<scf::ForOp>::OpRewritePattern;
+
+            LogicalResult matchAndRewrite(scf::ForOp op, PatternRewriter& rewriter) const override {
+                // 1. 获取边界和步长的定义操作
+                // scf.for 的边界是 SSA Value，我们需要检查它们是否由 arith.constant 定义
+                auto lbConst = op.getLowerBound().getDefiningOp<arith::ConstantIndexOp>();
+                auto ubConst = op.getUpperBound().getDefiningOp<arith::ConstantIndexOp>();
+                auto stepConst = op.getStep().getDefiningOp<arith::ConstantIndexOp>();
+
+                // 2. 必须全是常量才能展开
+                if (!lbConst || !ubConst || !stepConst) {
+                    return failure();
+                }
+
+                int64_t lb = lbConst.value();
+                int64_t ub = ubConst.value();
+                int64_t step = stepConst.value();
+                int64_t tripCount = (ub - lb + step - 1) / step;
+
+                // 3. 阈值控制 (防止展开过大的循环)
+                if (tripCount > 32) {
+                    return failure();
+                }
+
+                LLVM_DEBUG(llvm::dbgs() << "  -> [Cleanup] Fully unrolling scf.for with trip count: " << tripCount << "\n");
+
+                // 4. 准备迭代参数的初始值
+                SmallVector<Value> currentIterArgs = op.getInitArgs();
+                Location loc = op.getLoc();
+
+                // 5. 展开循环
+                for (int64_t i = 0; i < tripCount; ++i) {
+                    int64_t ivVal = lb + i * step;
+
+                    IRMapping mapping;
+                    Value ivConst = rewriter.create<arith::ConstantIndexOp>(loc, ivVal);
+
+                    // 映射 Block 参数: [0] 是 IV, [1..N] 是 iter_args
+                    mapping.map(op.getInductionVar(), ivConst);
+                    for (auto [blockArg, iterVal] : llvm::zip(op.getRegionIterArgs(), currentIterArgs)) {
+                        mapping.map(blockArg, iterVal);
+                    }
+
+                    // 克隆 Body 中的操作 (除了 yield)
+                    for (Operation& bodyOp : op.getBody()->without_terminator()) {
+                        rewriter.clone(bodyOp, mapping);
+                    }
+
+                    // 处理 Yield: 更新下一次迭代的参数
+                    auto yieldOp = cast<scf::YieldOp>(op.getBody()->getTerminator());
+                    currentIterArgs.clear();
+                    for (Value operand : yieldOp.getOperands()) {
+                        currentIterArgs.push_back(mapping.lookupOrDefault(operand));
+                    }
+                }
+
+                // 6. 替换原循环的结果
+                rewriter.replaceOp(op, currentIterArgs);
+
+                return success();
+            }
+        };
+
+        // --- 无数据依赖循环打包 (Plaintext Batching / Flattening) ---
+        struct PlaintextBatchingPattern : public OpConversionPattern<affine::AffineForOp> {
+            using OpConversionPattern::OpConversionPattern;
+
+            LogicalResult matchAndRewrite(affine::AffineForOp op, OpAdaptor adaptor,
+                                          ConversionPatternRewriter& rewriter) const override {
+                auto funcOp = op->getParentOfType<func::FuncOp>();
+                if (!funcOp || !funcOp->hasAttr("scfhe.crypto"))
+                    return failure();
+
+                LLVM_DEBUG(llvm::dbgs() << "\n[PlaintextBatchingPattern] Inspecting AffineForOp at " << op.getLoc() << "\n");
+
+                // 【核心拦截】：如果有 iter_args (有数据依赖)，拒绝匹配，交给策略 B 处理
+                if (op.getNumIterOperands() > 0) {
+                    LLVM_DEBUG(llvm::dbgs() << "  -> [Rejected] Loop has iter_args (data dependency). Delegating to Route 1.\n");
+                    return failure();
+                }
+
+                LLVM_DEBUG(llvm::dbgs() << "  -> [Accepted] No data dependency found. Starting flattening (batching)...\n");
+
+                Block* body = op.getBody();
+
+                // 1. 获取 yield 的返回值并删除 yield 算子
+                auto yieldOp = cast<affine::AffineYieldOp>(body->getTerminator());
+                SmallVector<Value> yieldedValues;
+                for (Value operand : yieldOp.getOperands()) {
+                    yieldedValues.push_back(operand);
+                }
+                LLVM_DEBUG(llvm::dbgs() << "  -> Extracted " << yieldedValues.size() << " yielded values.\n");
+                rewriter.eraseOp(yieldOp);
+
+                // 2. 为 Block 准备替身参数（因为没有 iter_args，所以只有 index 需要替换）
+                SmallVector<Value, 4> replValues;
+                Value c0 = rewriter.create<arith::ConstantIndexOp>(op.getLoc(), 0);
+                replValues.push_back(c0);
+                LLVM_DEBUG(llvm::dbgs() << "  -> Replaced loop induction variable with constant 0.\n");
+
+                // 3. 将循环体内的操作一锅端出来，砸平
+                rewriter.inlineBlockBefore(body, op, replValues);
+                LLVM_DEBUG(llvm::dbgs() << "  -> Inlined loop body successfully.\n");
+
+                // 4. 处理返回值并删除原循环
+                if (yieldedValues.empty()) {
+                    rewriter.eraseOp(op);
+                    LLVM_DEBUG(llvm::dbgs() << "  -> Erased original loop (no return values).\n");
+                } else {
+                    rewriter.replaceOp(op, yieldedValues);
+                    LLVM_DEBUG(llvm::dbgs() << "  -> Replaced original loop with yielded values.\n");
+                }
+
+                LLVM_DEBUG(llvm::dbgs() << "[PlaintextBatchingPattern] Batching complete.\n");
+                return success();
+            }
+        };
+
+        // ============================================================================
+        // 4. Pass 主体
+        // ============================================================================
+        struct ConvertToSCFHEPass : public impl::ConvertToSCFHEPassBase<ConvertToSCFHEPass> {
+            using impl::ConvertToSCFHEPassBase<ConvertToSCFHEPass>::ConvertToSCFHEPassBase;
+
+            void runOnOperation() final {
+                ModuleOp module = getOperation();
+                MLIRContext* ctx = &getContext();
+                OpBuilder builder(ctx);
+
+                LLVM_DEBUG(llvm::dbgs() << "====== SCFHE Pass Started ======\n");
+
+                // --- Phase 1: Analysis ---
+                ArgAnalysis argAnalysis;
+                argAnalysis.run(module);
+
+                // --- Phase 2: Client Rewrite (Call Sites) ---
+                SCFHETypeConverter typeConverter(ctx);
+
+                module.walk([&](func::CallOp callOp) {
+                    auto callee = module.lookupSymbol<func::FuncOp>(callOp.getCallee());
+                    if (!callee || !callee->hasAttr("scfhe.crypto"))
+                        return;
+
+                    const auto& info = argAnalysis.infoMap.lookup(callee);
+                    builder.setInsertionPoint(callOp);
+                    SmallVector<Value> newOperands;
+                    SmallVector<Value> originalOutputMemRefs;
+
+                    for (unsigned i = 0; i < callOp.getNumOperands(); ++i) {
+                        Value arg = callOp.getOperand(i);
+                        if (info.inputArgs.test(i)) {
+                            auto memRefType = cast<MemRefType>(arg.getType());
+                            auto cipherType = SCFHECipherType::get(ctx, memRefType.hasStaticShape() ? memRefType.getNumElements() : ShapedType::kDynamic, IntegerType::get(ctx, 64));
+                            newOperands.push_back(builder.create<SCFHEEncryptOp>(callOp.getLoc(), cipherType, arg));
+                        } else if (info.outputArgs.test(i)) {
+                            originalOutputMemRefs.push_back(arg);
+                        } else {
+                            newOperands.push_back(arg);
+                        }
+                    }
+
+                    SmallVector<Type> newResultTypes;
+                    for (auto out : originalOutputMemRefs) {
+                        newResultTypes.push_back(typeConverter.convertType(out.getType()));
+                    }
+
+                    auto newCallOp = builder.create<func::CallOp>(callOp.getLoc(), callee.getName(), newResultTypes, newOperands);
+                    for (auto it : llvm::zip(newCallOp.getResults(), originalOutputMemRefs)) {
+                        Value dec = builder.create<SCFHEDecryptOp>(callOp.getLoc(), std::get<1>(it).getType(), std::get<0>(it));
+                        builder.create<memref::CopyOp>(callOp.getLoc(), dec, std::get<1>(it));
+                    }
+
+                    callOp.erase();
+                });
+
+                // --- Phase 3: Server Conversion ---
+                // SCFHETypeConverter typeConverter(ctx);
+                RewritePatternSet patterns(ctx);
+                ConversionTarget target(*ctx);
+
+                target.addLegalDialect<SCFHEDialect, arith::ArithDialect, func::FuncDialect, math::MathDialect, scf::SCFDialect>();
+                target.addLegalOp<mlir::UnrealizedConversionCastOp>();
+
+                patterns.add<FuncSignaturePattern>(typeConverter, ctx, argAnalysis);
+                patterns.add<BinaryOpRewritePattern<arith::AddFOp, SCFHEAddOp>>(typeConverter, ctx);
+                patterns.add<BinaryOpRewritePattern<arith::SubFOp, SCFHESubOp>>(typeConverter, ctx);
+                patterns.add<BinaryOpRewritePattern<arith::MulFOp, SCFHEMultOp>>(typeConverter, ctx);
+                patterns.add<BinaryOpRewritePattern<arith::DivFOp, SCFHEDivOp>>(typeConverter, ctx);
+                patterns.add<ExpRewritePattern>(typeConverter, ctx);
+
+                patterns.add<ReduceAddPattern>(typeConverter, ctx);
+
+                patterns.add<PlaintextBatchingPattern>(typeConverter, ctx);
+                patterns.add<AffineForToSCFForPattern>(typeConverter, ctx);
+                patterns.add<AffineYieldToSCFYieldPattern>(typeConverter, ctx);
+
+                // patterns.add<RemoveLoadPattern>(typeConverter, ctx);
+                patterns.add<AffineLoadToSCFHELoadPattern>(typeConverter, ctx);
+                patterns.add<StoreToReturnPattern>(typeConverter, ctx);
+
+                patterns.add<RemoveRedundantCopy>(ctx);
+
+                auto isCryptoFunc = [](Operation* op) {
+                    auto func = op->getParentOfType<func::FuncOp>();
+                    return func && func->hasAttr("scfhe.crypto");
+                };
+
+                target.addDynamicallyLegalOp<func::FuncOp>([&](func::FuncOp op) {
+                    return !op->hasAttr("scfhe.crypto") || (op.getFunctionType().getNumResults() > 0 &&
+                                                            llvm::none_of(op.getFunctionType().getInputs(), [](Type t) { return isa<MemRefType>(t); }));
+                });
+
+                target.addDynamicallyLegalOp<affine::AffineForOp, affine::AffineYieldOp, affine::AffineLoadOp, affine::AffineStoreOp,
+                                             arith::AddFOp, arith::SubFOp, arith::MulFOp, arith::DivFOp, math::ExpOp>(
+                    [&](Operation* op) { return !isCryptoFunc(op); });
+
+                LLVM_DEBUG(llvm::dbgs() << "\n--- Executing Phase 3: Dialect Conversion ---\n");
+                if (failed(applyPartialConversion(module, target, std::move(patterns)))) {
+                    LLVM_DEBUG(llvm::dbgs() << "!!! Phase 3 Conversion Failed (Rollback Occurred) !!!\n");
+                    signalPassFailure();
+                    return;
+                }
+                LLVM_DEBUG(llvm::dbgs() << "--- Phase 3 Conversion Succeeded ---\n\n");
+
+                // --- Phase 4: Inlining (调用 MLIR 官方内联管线) ---
+                LLVM_DEBUG(llvm::dbgs() << "--- Executing Phase 4: Official Inliner ---\n");
+
+                // 在 Pass 内部创建一个临时的管线，专门用来跑官方 Inliner
+                PassManager pm(ctx);
+                pm.addPass(createInlinerPass());
+
+                // 运行官方内联！它会自动处理所有复杂的返回值的 Use-Def 链替换
+                if (failed(pm.run(module))) {
+                    LLVM_DEBUG(llvm::dbgs() << "!!! Inlining Failed !!!\n");
+                    signalPassFailure();
+                    return;
+                }
+
+                // --- Phase 5: Cleanup & Shape Inference (形状推断与清理) ---
+                LLVM_DEBUG(llvm::dbgs() << "\n--- Executing Phase 5: Cleanup & Shape Inference ---\n");
+                RewritePatternSet cleanupPatterns(ctx);
+
+                cleanupPatterns.add<SCFFullUnrollPattern>(ctx);
+
+                cleanupPatterns.add<RemoveRedundantCopy>(ctx);
+                cleanupPatterns.add<RemoveDecryptCastPattern>(ctx); // 加入刚才写的融化 Cast 的 Pattern
+
+                cleanupPatterns.add<RemoveLoadCastPattern>(ctx);
+
+                // MLIR 的 GreedyPatternRewriteDriver 会自动调用算子内置的 fold() 方法。
+                // 这意味着所有匹配的 cast(<1> to <?>) 和 cast(<?> to <1>) 如果相遇，会自动互相抵消（折叠）！
+                if (failed(applyPatternsGreedily(module, std::move(cleanupPatterns)))) {
+                    signalPassFailure();
+                    return;
+                }
+
+                LLVM_DEBUG(llvm::dbgs() << "====== SCFHE Pass Finished ======\n");
+            }
+        };
+    }
+}

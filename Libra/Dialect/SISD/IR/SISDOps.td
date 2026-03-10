@@ -148,6 +148,18 @@ def SISDMinOp : SISD_Op<"min", [Pure]> {
     let assemblyFormat = "$lhs `,` $rhs attr-dict `:` type($lhs) `,` type($rhs) `->` type($result)";
 }
 
+def SISDReduceAddOp : SISD_Op<"reduce_add", [Pure]> {
+    let summary = "Reduces a vector of ciphertexts by summation.";
+    let description = [{
+        Aggregates a tensor or vector of encrypted values into a single result
+        by adding them all together. This represents a summing reduction,
+        typically used to accumulate results from an array or loop.
+    }];
+    let arguments = (ins AnyType:$input);
+    let results = (outs AnyType:$result);
+    let assemblyFormat = "$input attr-dict `:` type($input) `->` type($result)";
+}
+
 // ============================================================================
 // Group 4: Cipher Conversion
 // ============================================================================

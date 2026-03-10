@@ -155,6 +155,29 @@ namespace mlir::libra::simd {
             }
         };
 
+        // --- ReduceAdd 转换 ---
+        struct SIMDReduceAddConversion : public OpConversionPattern<scfhe::SCFHEReduceAddOp> {
+            using OpConversionPattern::OpConversionPattern;
+
+            LogicalResult matchAndRewrite(scfhe::SCFHEReduceAddOp op, OpAdaptor adaptor,
+                                          ConversionPatternRewriter& rewriter) const override {
+                LLVM_DEBUG(llvm::dbgs() << "Converting ReduceAdd Op\n");
+
+                // 1. 获取输入 (已经由 TypeConverter 转换为 SIMD 类型)
+                Value input = peelCast(adaptor.getInput());
+
+                // 2. 获取结果类型 (TypeConverter 会将 !scfhe.cipher 转为 !simd.cipher)
+                Type resultType = getTypeConverter()->convertType(op.getResult().getType());
+
+                // 3. 创建 simd.reduce_add
+                // 注意：这里假设你在 SIMDOps.td 中定义了 SIMDReduceAddOp。
+                // 如果没有，你需要先去定义它，或者在这里用 simd.rotate + simd.add 展开实现。
+                rewriter.replaceOpWithNewOp<SIMDReduceAddOp>(op, resultType, input);
+
+                return success();
+            }
+        };
+
         // 专门用于转换 func.return 的操作数类型
         struct ConvertReturnOpPattern : public OpConversionPattern<func::ReturnOp> {
             using OpConversionPattern::OpConversionPattern;
@@ -399,7 +422,8 @@ namespace mlir::libra::simd {
                     SIMDArithmeticConversion<scfhe::SCFHEAddOp, SIMDAddOp>,
                     SIMDArithmeticConversion<scfhe::SCFHESubOp, SIMDSubOp>,
                     SIMDArithmeticConversion<scfhe::SCFHEMultOp, SIMDMultOp>,
-                    SIMDArithmeticConversion<scfhe::SCFHEDivOp, SIMDDivOp>>(typeConverter, ctx);
+                    SIMDArithmeticConversion<scfhe::SCFHEDivOp, SIMDDivOp>,
+                    SIMDReduceAddConversion>(typeConverter, ctx);
 
                 if (failed(applyPartialConversion(module, target, std::move(patterns)))) {
                     llvm::errs() << "Error: Partial conversion failed.\n";
