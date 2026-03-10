@@ -9,6 +9,10 @@ log/*
 
 .gitmodules
 
+HElib/*
+
+Tool/*
+
 ### VisualStudioCode template
 .vscode/*
 !.vscode/settings.json
