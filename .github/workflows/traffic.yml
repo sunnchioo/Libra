@@ -1,0 +1,17 @@
+name: Traffic Analytics
+
+on:
+  schedule:
+    # 每天 UTC 时间 23:30 自动运行一次拉取当天数据
+    - cron: "30 23 * * *"
+  workflow_dispatch: # 允许你在 Actions 面板手动点击运行
+
+jobs:
+  jgehrcke-stats:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Run GitHub-Repo-Stats
+        uses: jgehrcke/github-repo-stats@v1.4.2
+        with:
+          ghtoken: ${{ secrets.GHRS_GITHUB_API_TOKEN }}
+          # 默认情况下，它会自动将生成的 HTML 报告推送到 github-repo-stats 分支
