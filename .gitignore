@@ -1,11 +1,13 @@
 build/*
 
 ### VisualStudioCode template
-.vscode/*
+.vscode/
 
 # HElib/*
 
 log/*
+
+.gitmodules
 
 ### VisualStudioCode template
 .vscode/*
