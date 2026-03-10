@@ -192,3 +192,16 @@ dependencies) are subject to their respective licenses.
 }
 ```
 
+## 📊 Project Statistics 
+
+### 🌟 Star History 
+<a href="https://star-history.com/#sunnchioo/Libra&Date">
+  <img src="https://api.star-history.com/svg?repos=sunnchioo/Libra&type=Date" alt="Star History Chart">
+</a> 
+
+### 📉 Traffic Analytics 
+GitHub's native traffic insights only retain data for the past 14 days. This project utilizes an automated GitHub Action to persistently archive traffic data and generate long-term historical trends. 
+
+[![View Traffic Report](https://img.shields.io/badge/View-Traffic_Report-blue?style=for-the-badge&logo=google-analytics)](https://sunnchioo.github.io/Libra/sunnchioo/Libra/latest-report/report.html) 
+
+> **Note:** Click the button above to view the detailed interactive report, including historical Views, Clones, and Top Referrers.
