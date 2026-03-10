@@ -1,0 +1,13 @@
+[submodule "HElib/FlyHE"]
+	path = HElib/FlyHE
+	url = git@github.com:sunnchioo/FlyHE.git
+	shallow = true
+[submodule "Tool/llvm-project"]
+	path = Tool/llvm-project
+	url = git@github.com:sunnchioo/llvm-project.git
+	shallow = true
+[submodule "Tool/Polygeist"]
+	path = Tool/Polygeist
+	url = git@github.com:sunnchioo/Polygeist.git
+	shallow = true
+
