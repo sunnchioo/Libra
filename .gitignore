@@ -1,5 +1,7 @@
 build/*
 
+.vscode
+
 # HElib/*
 
 log/*
