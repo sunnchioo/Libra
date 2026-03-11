@@ -91,7 +91,7 @@ cmake -G Ninja ../llvm-project/llvm \
   -DLLVM_EXTERNAL_PROJECTS="polygeist" \
   -DLLVM_EXTERNAL_POLYGEIST_SOURCE_DIR=.. \
   -DLLVM_TARGETS_TO_BUILD="host" \
-  -DLLVM_ENABLE_ASSERTIONS=OFF \
+  -DLLVM_ENABLE_ASSERTIONS=ON \
   -DCMAKE_BUILD_TYPE=Release
 ninja -j32
 ninja check-polygeist-opt && ninja check-cgeist
@@ -106,7 +106,7 @@ cd build
 cmake -G Ninja ../llvm \
   -DLLVM_ENABLE_PROJECTS="mlir;clang" \
   -DLLVM_TARGETS_TO_BUILD="host" \
-  -DLLVM_ENABLE_ASSERTIONS=OFF \
+  -DLLVM_ENABLE_ASSERTIONS=ON \
   -DCMAKE_BUILD_TYPE=Release
 ninja -j32
 ninja check-mlir
