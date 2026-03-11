@@ -194,10 +194,9 @@ dependencies) are subject to their respective licenses.
 
 ## 📊 Project Statistics 
 
-### 🌟 Star History 
-<a href="https://star-history.com/#sunnchioo/Libra&Date">
-  <img src="https://api.star-history.com/svg?repos=sunnchioo/Libra&type=Date" alt="Star History Chart">
-</a> 
+## Star History
+
+[![Star History Chart](https://api.star-history.com/image?repos=sunnchioo/Libra&type=date&legend=top-left)](https://www.star-history.com/?type=date&repos=sunnchioo%2FLibra)
 
 ### 📉 Traffic Analytics 
 GitHub's native traffic insights only retain data for the past 14 days. This project utilizes an automated GitHub Action to persistently archive traffic data and generate long-term historical trends. 

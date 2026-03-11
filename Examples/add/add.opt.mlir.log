@@ -72,6 +72,9 @@ Analyzing Function: @add
 
 --- Executing Phase 3: Dialect Conversion ---
 
+[ReduceAddPattern] Inspecting loop at loc("add.mlir":23:5)
+  -> Failed: Loop has 0 iter_args (expected 1)
+
 [AffineForToSCFForPattern] Inspecting AffineForOp at loc("add.mlir":23:5)
   -> [Rejected] Loop has NO iter_args. Delegating to Batching Pattern.
 
